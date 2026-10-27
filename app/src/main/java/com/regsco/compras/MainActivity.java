@@ -94,6 +94,7 @@ public class MainActivity extends Activity {
         section("Vamos às compras?");
         button("＋  Iniciar nova compra",()->newSession());
         button("▤  Minhas compras e histórico",()->sessions());
+        button("⌕  Buscar compras",()->searchSessions());
         section("Planejamento");
         button("☑  Lista de compras",()->shoppingList());
         button("▣  Estoque da casa",()->pantry());
@@ -109,6 +110,7 @@ public class MainActivity extends Activity {
         button("▦  Comparar preços registrados",()->comparePrices());
         button("⚙  Gerenciar lojas",()->storesPage());
         button("↗  Compartilhar relatório",()->share());
+        button("⇩  Exportar relatório CSV",()->exportCsv());
         button("✦  Personalizar aparência",()->themePage());
         button("⇩  Backup e restauração",()->backupPage());
         screen.addView(label("Seus dados ficam armazenados neste aparelho.",12));
@@ -147,7 +149,7 @@ public class MainActivity extends Activity {
         button("Salvar produto",()->{String n=name.getText().toString().trim();int q=positive(quantity.getText().toString());if(n.isEmpty()||q==0){message("Informe produto e quantidade");return;}db.execSQL("INSERT INTO pantry(name,quantity) VALUES(?,?)",new Object[]{n,q});pantry();});
         button("Voltar",()->home());
     }
-    static final int EXPORT_BACKUP=701, IMPORT_BACKUP=702;
+    static final int EXPORT_BACKUP=701, IMPORT_BACKUP=702, EXPORT_CSV=703;
     final String[] backupTables={"settings","sessions","items","budgets","shopping_list","pantry","basket","stores"};
     void backupPage(){
         page("Backup e restauração");
@@ -213,7 +215,13 @@ public class MainActivity extends Activity {
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
         try{
-            if(request==EXPORT_BACKUP){
+            if(request==EXPORT_CSV){
+                try(OutputStream out=getContentResolver().openOutputStream(data.getData())){
+                    if(out==null)throw new IOException("Não foi possível abrir o arquivo");
+                    out.write(("\\uFEFF"+reportCsv()).getBytes("UTF-8"));
+                }
+                message("Relatório CSV exportado");
+            }else if(request==EXPORT_BACKUP){
                 try(OutputStream out=getContentResolver().openOutputStream(data.getData())){
                     if(out==null)throw new IOException("Não foi possível abrir o arquivo");
                     out.write(exportData().toString(2).getBytes("UTF-8"));
@@ -426,6 +434,47 @@ public class MainActivity extends Activity {
             }
         }
         button("Voltar",()->home());
+    }
+    void searchSessions(){
+        page("Buscar compras");
+        EditText term=field("Nome da compra ou loja","",false);
+        button("Pesquisar",()->showSessionResults(term.getText().toString().trim()));
+        button("Voltar",()->home());
+    }
+    void showSessionResults(String term){
+        page("Resultados de compras");
+        try(Cursor c=db.rawQuery("SELECT s.id,s.name,s.store,s.month,s.year,s.finished,COALESCE(SUM(i.quantity*i.unit_cents),0) FROM sessions s LEFT JOIN items i ON i.session_id=s.id WHERE s.name LIKE ? OR s.store LIKE ? GROUP BY s.id ORDER BY s.created DESC LIMIT 200",new String[]{"%"+term+"%","%"+term+"%"})){
+            if(c.getCount()==0)screen.addView(label("Nenhuma compra encontrada.",16));
+            while(c.moveToNext()){
+                long id=c.getLong(0);
+                button(c.getString(1)+" • "+c.getString(2)+"\n"+c.getInt(3)+"/"+c.getInt(4)+" • "+(c.getInt(5)==1?"Finalizada":"Em andamento")+" • "+money(c.getLong(6)),()->editSession(id));
+            }
+        }
+        button("Nova busca",()->searchSessions());button("Voltar",()->home());
+    }
+    String csvCell(String value){
+        if(value==null)value="";
+        return "\"" + value.replace("\"","\"\"").replace("\r"," ").replace("\n"," ") + "\"";
+    }
+    String reportCsv(){
+        StringBuilder b=new StringBuilder("Compra;Loja;Mês;Ano;Status;Produto;Categoria;Quantidade;Preço unitário (R$);Total (R$)\r\n");
+        try(Cursor c=db.rawQuery("SELECT s.name,s.store,s.month,s.year,s.finished,i.name,i.category,i.quantity,i.unit_cents FROM sessions s JOIN items i ON i.session_id=s.id WHERE s.month=? AND s.year=? ORDER BY s.id,i.id",new String[]{""+month,""+year})){
+            while(c.moveToNext()){
+                long cents=c.getLong(8);int qty=c.getInt(7);
+                b.append(csvCell(c.getString(0))).append(';').append(csvCell(c.getString(1))).append(';')
+                .append(c.getInt(2)).append(';').append(c.getInt(3)).append(';')
+                .append(csvCell(c.getInt(4)==1?"Finalizada":"Em andamento")).append(';')
+                .append(csvCell(c.getString(5))).append(';').append(csvCell(c.getString(6))).append(';')
+                .append(qty).append(';').append(csvCell(String.format(Locale.US,"%.2f",cents/100.0).replace('.',','))).append(';')
+                .append(csvCell(String.format(Locale.US,"%.2f",(cents*qty)/100.0).replace('.',','))).append("\r\n");
+            }
+        }
+        return b.toString();
+    }
+    void exportCsv(){
+        Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("text/csv");i.putExtra(Intent.EXTRA_TITLE,"RegsCo-relatorio-"+period().replace('/','-')+".csv");
+        startActivityForResult(i,EXPORT_CSV);
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
