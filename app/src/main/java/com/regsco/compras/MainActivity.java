@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
         db.execSQL("CREATE TABLE IF NOT EXISTS shopping_list(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1,checked INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE TABLE IF NOT EXISTS pantry(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1)");
         db.execSQL("CREATE TABLE IF NOT EXISTS basket(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS stores(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL UNIQUE)");
         try(Cursor c=db.rawQuery("SELECT value FROM settings WHERE key='theme'",null)){if(c.moveToFirst())theme=Integer.parseInt(c.getString(0));}
         home();
     }
@@ -101,6 +102,8 @@ public class MainActivity extends Activity {
         button("▤  Cesta básica recorrente",()->basketPage());
         button("▥  Relatórios por categoria",()->categoryReport());
         button("⌕  Histórico de preços",()->priceHistory());
+        button("▦  Comparar preços registrados",()->comparePrices());
+        button("⚙  Gerenciar lojas",()->storesPage());
         button("↗  Compartilhar relatório",()->share());
         button("✦  Personalizar aparência",()->themePage());
         button("⇩  Backup e restauração",()->backupPage());
@@ -141,7 +144,7 @@ public class MainActivity extends Activity {
         button("Voltar",()->home());
     }
     static final int EXPORT_BACKUP=701, IMPORT_BACKUP=702;
-    final String[] backupTables={"settings","sessions","items","budgets","shopping_list","pantry","basket"};
+    final String[] backupTables={"settings","sessions","items","budgets","shopping_list","pantry","basket","stores"};
     void backupPage(){
         page("Backup e restauração");
         screen.addView(label("Salve seus registros em um arquivo JSON no armazenamento do celular. A restauração substitui os registros atuais.",15));
@@ -159,7 +162,7 @@ public class MainActivity extends Activity {
         button("Voltar",()->home());
     }
     JSONObject exportData() throws Exception{
-        JSONObject root=new JSONObject();root.put("format","regsco-backup");root.put("version",2);
+        JSONObject root=new JSONObject();root.put("format","regsco-backup");root.put("version",3);
         for(String table:backupTables){
             JSONArray rows=new JSONArray();
             try(Cursor c=db.rawQuery("SELECT * FROM "+table,null)){
@@ -178,8 +181,8 @@ public class MainActivity extends Activity {
         return root;
     }
     void restoreData(JSONObject root) throws Exception{
-        if(!"regsco-backup".equals(root.optString("format"))||(root.optInt("version")!=1&&root.optInt("version")!=2))throw new Exception("Formato de backup incompatível");
-        for(String table:backupTables)if(root.optJSONArray(table)==null&&!(root.optInt("version")==1&&table.equals("basket")))throw new Exception("Backup incompleto: "+table);
+        if(!"regsco-backup".equals(root.optString("format"))||(root.optInt("version")<1||root.optInt("version")>3))throw new Exception("Formato de backup incompatível");
+        for(String table:backupTables)if(root.optJSONArray(table)==null&&!(root.optInt("version")<2&&table.equals("basket"))&&!(root.optInt("version")<3&&table.equals("stores")))throw new Exception("Backup incompleto: "+table);
         db.beginTransaction();
         try{
             for(int t=backupTables.length-1;t>=0;t--)db.delete(backupTables[t],null,null);
@@ -319,6 +322,58 @@ public class MainActivity extends Activity {
             message(count+" produto(s) enviados à lista");shoppingList();
         });
         button("Voltar",()->home());
+    }
+    void storesPage(){
+        page("Minhas lojas");
+        screen.addView(label("Cadastre seus estabelecimentos favoritos para preencher o nome nas próximas compras.",14));
+        try(Cursor c=db.rawQuery("SELECT id,name FROM stores ORDER BY name",null)){
+            while(c.moveToNext()){
+                long id=c.getLong(0);String name=c.getString(1);
+                screen.addView(label(name,16));
+                button("Excluir "+name,()->new AlertDialog.Builder(this).setMessage("Remover loja favorita? As compras anteriores serão preservadas.").setNegativeButton("Cancelar",null).setPositiveButton("Excluir",(d,w)->{db.execSQL("DELETE FROM stores WHERE id=?",new Object[]{id});storesPage();}).show());
+            }
+        }
+        EditText name=field("Nome da loja","",false);
+        button("Salvar loja",()->{
+            String n=name.getText().toString().trim();if(n.isEmpty()){message("Informe o nome da loja");return;}
+            android.content.ContentValues v=new android.content.ContentValues();v.put("name",n);
+            if(db.insertWithOnConflict("stores",null,v,SQLiteDatabase.CONFLICT_IGNORE)==-1)message("Esta loja já está cadastrada");
+            storesPage();
+        });
+        button("Voltar",()->home());
+    }
+    void chooseStore(EditText field){
+        ArrayList<String> names=new ArrayList<>();
+        try(Cursor c=db.rawQuery("SELECT name FROM stores ORDER BY name",null)){
+            while(c.moveToNext())names.add(c.getString(0));
+        }
+        if(names.isEmpty()){message("Cadastre uma loja em Gerenciar lojas");return;}
+        new AlertDialog.Builder(this).setTitle("Selecionar loja")
+            .setItems(names.toArray(new String[0]),(d,w)->field.setText(names.get(w)))
+            .setNegativeButton("Cancelar",null).show();
+    }
+    void comparePrices(){
+        page("Comparar preços registrados");
+        screen.addView(label("Compare preços unitários de produtos cadastrados em compras anteriores. Não são preços atuais das lojas.",14));
+        EditText search=field("Nome do produto","",false);
+        button("Comparar",()->showComparison(search.getText().toString().trim()));
+        button("Voltar",()->home());
+    }
+    void showComparison(String product){
+        if(product.isEmpty()){message("Informe um produto");return;}
+        page("Comparação de preços");
+        screen.addView(label("Pesquisa: "+product,16));
+        long min=Long.MAX_VALUE;String cheapest="";
+        try(Cursor c=db.rawQuery("SELECT s.store,i.name,i.unit_cents,s.month,s.year FROM items i JOIN sessions s ON s.id=i.session_id WHERE LOWER(TRIM(i.name))=LOWER(TRIM(?)) AND TRIM(s.store)<>'' ORDER BY i.unit_cents ASC LIMIT 50",new String[]{product})){
+            if(c.getCount()==0)screen.addView(label("Nenhum registro exato com loja informada.",15));
+            while(c.moveToNext()){
+                String store=c.getString(0);long cents=c.getLong(2);
+                if(cents<min){min=cents;cheapest=store;}
+                screen.addView(label(store+"  •  "+money(cents)+" / unidade\n"+c.getInt(3)+"/"+c.getInt(4),16));
+            }
+        }
+        if(min!=Long.MAX_VALUE)card("MENOR PREÇO REGISTRADO",money(min),cheapest+" • histórico, não oferta atual");
+        button("Nova comparação",()->comparePrices());button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
