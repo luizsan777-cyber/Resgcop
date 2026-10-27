@@ -105,7 +105,9 @@ public class MainActivity extends Activity {
         button("▧  Compras em andamento",()->activeSessions());
         section("Mais opções");
         button("▤  Cesta básica recorrente",()->basketPage());
+        button("▣  Planejar compra pelo estoque",()->planFromStock());
         button("▥  Relatórios por categoria",()->categoryReport());
+        button("▤  Gastos dos últimos 6 meses",()->sixMonthReport());
         button("⌕  Histórico de preços",()->priceHistory());
         button("▦  Comparar preços registrados",()->comparePrices());
         button("⚙  Gerenciar lojas",()->storesPage());
@@ -480,6 +482,45 @@ public class MainActivity extends Activity {
     void chooseCategory(EditText target){
         String[] choices={"Alimentação","Carnes e frios","Hortifruti","Bebidas","Limpeza","Higiene pessoal","Farmácia","Casa","Outros"};
         new AlertDialog.Builder(this).setTitle("Categoria do produto").setItems(choices,(d,w)->target.setText(choices[w])).setNegativeButton("Cancelar",null).show();
+    }
+    void planFromStock(){
+        page("Planejar pelo estoque");
+        screen.addView(label("Confira a cesta básica, compare com o estoque e inclua na lista apenas as quantidades que faltam.",14));
+        button("Adicionar todos os itens em falta",()->{
+            int added=0;
+            db.beginTransaction();
+            try(Cursor c=db.rawQuery("SELECT b.name,b.quantity,COALESCE((SELECT SUM(p.quantity) FROM pantry p WHERE LOWER(TRIM(p.name))=LOWER(TRIM(b.name))),0) FROM basket b",null)){
+                while(c.moveToNext()){
+                    String name=c.getString(0);int missing=c.getInt(1)-c.getInt(2);
+                    if(missing<=0)continue;
+                    try(Cursor existing=db.rawQuery("SELECT id,quantity FROM shopping_list WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND checked=0 LIMIT 1",new String[]{name})){
+                        if(existing.moveToFirst())db.execSQL("UPDATE shopping_list SET quantity=? WHERE id=?",new Object[]{Math.max(missing,existing.getInt(1)),existing.getLong(0)});
+                        else db.execSQL("INSERT INTO shopping_list(name,quantity,checked) VALUES(?,?,0)",new Object[]{name,missing});
+                    }
+                    added++;
+                }
+                db.setTransactionSuccessful();
+            }finally{db.endTransaction();}
+            message(added+" produto(s) verificados e incluídos/atualizados");shoppingList();
+        });
+        button("Ver detalhes da reposição",()->lowStock());
+        button("Voltar",()->home());
+    }
+    void sixMonthReport(){
+        page("Gastos dos últimos 6 meses");
+        screen.addView(label("Somente compras finalizadas são contabilizadas.",14));
+        Calendar cursor=Calendar.getInstance();
+        cursor.set(year,month-1,1);
+        long sum=0;
+        for(int i=0;i<6;i++){
+            int m=cursor.get(Calendar.MONTH)+1,y=cursor.get(Calendar.YEAR);
+            long value=scalar("SELECT COALESCE(SUM(i.quantity*i.unit_cents),0) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=?",new String[]{""+m,""+y});
+            sum+=value;
+            screen.addView(label(String.format(Locale.forLanguageTag("pt-BR"),"%02d/%d",m,y)+"  •  "+money(value),17));
+            cursor.add(Calendar.MONTH,-1);
+        }
+        card("TOTAL DE 6 MESES",money(sum),"Média mensal: "+money(sum/6));
+        button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
