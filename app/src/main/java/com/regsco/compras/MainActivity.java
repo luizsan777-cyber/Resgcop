@@ -14,6 +14,8 @@ import android.widget.*;
 import java.text.NumberFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.io.*;
+import org.json.*;
 
 public class MainActivity extends Activity {
     SQLiteDatabase db;
@@ -97,6 +99,7 @@ public class MainActivity extends Activity {
         section("Mais opções");
         button("↗  Compartilhar relatório",()->share());
         button("✦  Personalizar aparência",()->themePage());
+        button("⇩  Backup e restauração",()->backupPage());
         screen.addView(label("Seus dados ficam armazenados neste aparelho.",12));
     }
     void shoppingList(){
@@ -131,6 +134,90 @@ public class MainActivity extends Activity {
         EditText name=field("Produto","",false),quantity=field("Quantidade","1",true);
         button("Salvar produto",()->{String n=name.getText().toString().trim();int q=positive(quantity.getText().toString());if(n.isEmpty()||q==0){message("Informe produto e quantidade");return;}db.execSQL("INSERT INTO pantry(name,quantity) VALUES(?,?)",new Object[]{n,q});pantry();});
         button("Voltar",()->home());
+    }
+    static final int EXPORT_BACKUP=701, IMPORT_BACKUP=702;
+    final String[] backupTables={"settings","sessions","items","budgets","shopping_list","pantry"};
+    void backupPage(){
+        page("Backup e restauração");
+        screen.addView(label("Salve seus registros em um arquivo JSON no armazenamento do celular. A restauração substitui os registros atuais.",15));
+        button("Exportar backup completo",()->{
+            Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType("application/json");i.putExtra(Intent.EXTRA_TITLE,"RegsCo-backup-"+System.currentTimeMillis()+".json");
+            startActivityForResult(i,EXPORT_BACKUP);
+        });
+        button("Restaurar de arquivo",()->new AlertDialog.Builder(this).setTitle("Restaurar backup")
+            .setMessage("A restauração substituirá todas as compras, listas, estoque e configurações atuais. Continue somente se o arquivo for confiável.")
+            .setNegativeButton("Cancelar",null).setPositiveButton("Escolher arquivo",(d,w)->{
+                Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);
+                i.setType("application/json");startActivityForResult(i,IMPORT_BACKUP);
+            }).show());
+        button("Voltar",()->home());
+    }
+    JSONObject exportData() throws Exception{
+        JSONObject root=new JSONObject();root.put("format","regsco-backup");root.put("version",1);
+        for(String table:backupTables){
+            JSONArray rows=new JSONArray();
+            try(Cursor c=db.rawQuery("SELECT * FROM "+table,null)){
+                while(c.moveToNext()){
+                    JSONObject row=new JSONObject();
+                    for(int i=0;i<c.getColumnCount();i++){
+                        if(c.isNull(i))row.put(c.getColumnName(i),JSONObject.NULL);
+                        else if(c.getType(i)==Cursor.FIELD_TYPE_INTEGER)row.put(c.getColumnName(i),c.getLong(i));
+                        else row.put(c.getColumnName(i),c.getString(i));
+                    }
+                    rows.put(row);
+                }
+            }
+            root.put(table,rows);
+        }
+        return root;
+    }
+    void restoreData(JSONObject root) throws Exception{
+        if(!"regsco-backup".equals(root.optString("format"))||root.optInt("version")!=1)throw new Exception("Formato de backup incompatível");
+        for(String table:backupTables)if(root.optJSONArray(table)==null)throw new Exception("Backup incompleto: "+table);
+        db.beginTransaction();
+        try{
+            for(int t=backupTables.length-1;t>=0;t--)db.delete(backupTables[t],null,null);
+            for(String table:backupTables){
+                JSONArray rows=root.getJSONArray(table);
+                for(int i=0;i<rows.length();i++){
+                    JSONObject row=rows.getJSONObject(i);
+                    android.content.ContentValues values=new android.content.ContentValues();
+                    Iterator<String> keys=row.keys();
+                    while(keys.hasNext()){
+                        String key=keys.next();Object value=row.get(key);
+                        if(value==JSONObject.NULL)values.putNull(key);
+                        else if(value instanceof Number)values.put(key,((Number)value).longValue());
+                        else values.put(key,String.valueOf(value));
+                    }
+                    if(db.insertOrThrow(table,null,values)<0)throw new Exception("Falha ao restaurar "+table);
+                }
+            }
+            db.setTransactionSuccessful();
+        }finally{db.endTransaction();}
+        try(Cursor c=db.rawQuery("SELECT value FROM settings WHERE key='theme'",null)){theme=c.moveToFirst()?Integer.parseInt(c.getString(0)):0;}
+    }
+    @Override protected void onActivityResult(int request,int result,Intent data){
+        super.onActivityResult(request,result,data);
+        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        try{
+            if(request==EXPORT_BACKUP){
+                try(OutputStream out=getContentResolver().openOutputStream(data.getData())){
+                    if(out==null)throw new IOException("Não foi possível abrir o arquivo");
+                    out.write(exportData().toString(2).getBytes("UTF-8"));
+                }
+                message("Backup exportado com sucesso");
+            }else if(request==IMPORT_BACKUP){
+                ByteArrayOutputStream buffer=new ByteArrayOutputStream();
+                try(InputStream in=getContentResolver().openInputStream(data.getData())){
+                    if(in==null)throw new IOException("Não foi possível ler o arquivo");
+                    byte[] bytes=new byte[8192];int n;int total=0;
+                    while((n=in.read(bytes))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Backup maior que 20 MB");buffer.write(bytes,0,n);}
+                }
+                restoreData(new JSONObject(buffer.toString("UTF-8")));
+                message("Backup restaurado");home();
+            }
+        }catch(Exception e){message("Erro: "+e.getMessage());}
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
