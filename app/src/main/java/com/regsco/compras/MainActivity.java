@@ -124,6 +124,7 @@ public class MainActivity extends Activity {
             while(c.moveToNext()){
                 long id=c.getLong(0);String name=c.getString(1);int qty=c.getInt(2),checked=c.getInt(3);
                 button((checked==1?"✓  ":"○  ")+name+"  × "+qty,()->{db.execSQL("UPDATE shopping_list SET checked=? WHERE id=?",new Object[]{checked==1?0:1,id});shoppingList();});
+                button("Editar "+name,()->editListItem(id,name,qty));
                 button("Remover "+name,()->{db.execSQL("DELETE FROM shopping_list WHERE id=?",new Object[]{id});shoppingList();});
             }
         }
@@ -315,6 +316,7 @@ public class MainActivity extends Activity {
             while(c.moveToNext()){
                 long id=c.getLong(0);String name=c.getString(1);int qty=c.getInt(2);
                 screen.addView(label(name+"  × "+qty,16));
+                button("Editar "+name,()->editBasketItem(id,name,qty));
                 button("Excluir "+name,()->{db.execSQL("DELETE FROM basket WHERE id=?",new Object[]{id});basketPage();});
             }
         }
@@ -521,6 +523,28 @@ public class MainActivity extends Activity {
         }
         card("TOTAL DE 6 MESES",money(sum),"Média mensal: "+money(sum/6));
         button("Voltar",()->home());
+    }
+    void editListItem(long id,String oldName,int oldQty){
+        page("Editar item da lista");
+        EditText name=field("Produto",oldName,false),quantity=field("Quantidade",""+oldQty,true);
+        button("Salvar",()->{
+            String n=name.getText().toString().trim();int q=positive(quantity.getText().toString());
+            if(n.isEmpty()||q<1){message("Informe produto e quantidade");return;}
+            db.execSQL("UPDATE shopping_list SET name=?,quantity=? WHERE id=?",new Object[]{n,q,id});
+            shoppingList();
+        });
+        button("Cancelar",()->shoppingList());
+    }
+    void editBasketItem(long id,String oldName,int oldQty){
+        page("Editar cesta recorrente");
+        EditText name=field("Produto",oldName,false),quantity=field("Quantidade",""+oldQty,true);
+        button("Salvar",()->{
+            String n=name.getText().toString().trim();int q=positive(quantity.getText().toString());
+            if(n.isEmpty()||q<1){message("Informe produto e quantidade");return;}
+            db.execSQL("UPDATE basket SET name=?,quantity=? WHERE id=?",new Object[]{n,q,id});
+            basketPage();
+        });
+        button("Cancelar",()->basketPage());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
