@@ -96,6 +96,7 @@ public class MainActivity extends Activity {
         section("Planejamento");
         button("☑  Lista de compras",()->shoppingList());
         button("▣  Estoque da casa",()->pantry());
+        button("⚠  Produtos para repor",()->lowStock());
         button("◉  Ajustar orçamento mensal",()->editBudget());
         button("▦  Escolher mês de referência",()->choosePeriod());
         section("Mais opções");
@@ -374,6 +375,28 @@ public class MainActivity extends Activity {
         }
         if(min!=Long.MAX_VALUE)card("MENOR PREÇO REGISTRADO",money(min),cheapest+" • histórico, não oferta atual");
         button("Nova comparação",()->comparePrices());button("Voltar",()->home());
+    }
+    void lowStock(){
+        page("Produtos para repor");
+        screen.addView(label("Produtos da cesta básica cujo estoque está abaixo da quantidade planejada.",14));
+        try(Cursor c=db.rawQuery("SELECT b.name,b.quantity,COALESCE((SELECT SUM(p.quantity) FROM pantry p WHERE LOWER(TRIM(p.name))=LOWER(TRIM(b.name))),0) FROM basket b ORDER BY b.name",null)){
+            int count=0;
+            while(c.moveToNext()){
+                String name=c.getString(0);int required=c.getInt(1),available=c.getInt(2),missing=required-available;
+                if(missing<=0)continue;
+                count++;
+                screen.addView(label(name+"  •  faltam "+missing+" (estoque: "+available+")",16));
+                button("Adicionar "+missing+" à lista",()->{
+                    try(Cursor existing=db.rawQuery("SELECT id,quantity FROM shopping_list WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND checked=0 LIMIT 1",new String[]{name})){
+                        if(existing.moveToFirst())db.execSQL("UPDATE shopping_list SET quantity=? WHERE id=?",new Object[]{Math.max(missing,existing.getInt(1)),existing.getLong(0)});
+                        else db.execSQL("INSERT INTO shopping_list(name,quantity,checked) VALUES(?,?,0)",new Object[]{name,missing});
+                    }
+                    message("Lista atualizada");lowStock();
+                });
+            }
+            if(count==0)screen.addView(label("Nenhum item da cesta precisa de reposição.",16));
+        }
+        button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
