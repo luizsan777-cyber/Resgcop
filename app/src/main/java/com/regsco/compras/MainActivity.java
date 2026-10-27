@@ -106,6 +106,7 @@ public class MainActivity extends Activity {
         section("Mais opções");
         button("▤  Cesta básica recorrente",()->basketPage());
         button("Limpar itens concluídos",()->confirmClearChecked());
+        button("Reativar itens concluídos",()->reopenChecked());
         button("▣  Planejar compra pelo estoque",()->planFromStock());
         button("▥  Relatórios por categoria",()->categoryReport());
         button("▤  Gastos dos últimos 6 meses",()->sixMonthReport());
@@ -588,6 +589,14 @@ public class MainActivity extends Activity {
             while(c.moveToNext())card(c.getString(0),money(c.getLong(2)),c.getLong(1)+" compra(s)");
         }
         button("Voltar",()->home());
+    }
+    void reopenChecked(){
+        long count=scalar("SELECT COUNT(*) FROM shopping_list WHERE checked=1",null);
+        if(count==0){message("Não há itens concluídos");return;}
+        new AlertDialog.Builder(this).setTitle("Reativar itens")
+            .setMessage("Retornar "+count+" itens concluídos para a lista pendente?")
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Reativar",(d,w)->{db.execSQL("UPDATE shopping_list SET checked=0 WHERE checked=1");shoppingList();}).show();
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
