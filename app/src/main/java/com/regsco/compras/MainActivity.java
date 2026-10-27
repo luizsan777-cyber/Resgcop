@@ -19,6 +19,8 @@ import org.json.*;
 
 public class MainActivity extends Activity {
     SQLiteDatabase db;
+    static final int CAMERA_SCAN=704;
+    EditText scanNameTarget,scanPriceTarget;
     LinearLayout screen;
     int theme=0;
     int month=Calendar.getInstance().get(Calendar.MONTH)+1, year=Calendar.getInstance().get(Calendar.YEAR);
@@ -225,6 +227,7 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(request==CAMERA_SCAN){handleCameraResult(data);return;}
         try{
             if(request==EXPORT_CSV){
                 try(OutputStream out=getContentResolver().openOutputStream(data.getData())){
@@ -642,6 +645,46 @@ public class MainActivity extends Activity {
         button("Abrir lista",()->shoppingList());
         button("Voltar",()->home());
     }
+    void startScan(EditText name,EditText price){
+        scanNameTarget=name;scanPriceTarget=price;
+        Intent intent=new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
+        if(intent.resolveActivity(getPackageManager())==null){message("Nenhum aplicativo de câmera disponível");return;}
+        startActivityForResult(intent,CAMERA_SCAN);
+    }
+    void handleCameraResult(Intent data){
+        android.graphics.Bitmap bitmap=null;
+        if(data!=null&&data.getExtras()!=null){
+            Object photo=data.getExtras().get("data");
+            if(photo instanceof android.graphics.Bitmap)bitmap=(android.graphics.Bitmap)photo;
+        }
+        if(bitmap==null){message("A câmera não retornou uma imagem");return;}
+        com.google.mlkit.vision.common.InputImage image=com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap,0);
+        com.google.mlkit.vision.text.TextRecognizer recognizer=com.google.mlkit.vision.text.TextRecognition.getClient(com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS);
+        recognizer.process(image).addOnSuccessListener(result->{
+            String detected=result.getText();
+            java.util.regex.Matcher matcher=java.util.regex.Pattern.compile("(?:R\\$\\s*)?(\\d{1,5}[,.]\\d{2})").matcher(detected);
+            String price="";
+            while(matcher.find()){price=matcher.group(1);break;}
+            final String foundPrice=price;
+            new AlertDialog.Builder(this).setTitle("Texto reconhecido")
+                .setMessage((detected.isEmpty()?"Nenhum texto reconhecido. Tente uma foto mais próxima.":detected)+"\\n\\nConfira o preço antes de salvar.")
+                .setPositiveButton("Usar preço",(d,w)->{if(scanPriceTarget!=null&&!foundPrice.isEmpty())scanPriceTarget.setText(foundPrice);})
+                .setNegativeButton("Cancelar",null).show();
+        }).addOnFailureListener(e->message("Não foi possível reconhecer a etiqueta: "+e.getMessage()))
+          .addOnCompleteListener(task->recognizer.close());
+        com.google.mlkit.vision.barcode.BarcodeScanner scanner=com.google.mlkit.vision.barcode.BarcodeScanning.getClient();
+        scanner.process(image).addOnSuccessListener(codes->{
+            if(codes.isEmpty())return;
+            String value=codes.get(0).getRawValue();
+            if(value==null||value.isEmpty())return;
+            if(scanNameTarget!=null&&scanNameTarget.getText().toString().trim().isEmpty()){
+                new AlertDialog.Builder(this).setTitle("Código de barras detectado")
+                    .setMessage(value+"\\nO código não identifica automaticamente o nome do produto.")
+                    .setPositiveButton("Preencher código",(d,w)->scanNameTarget.setText(value))
+                    .setNegativeButton("Ignorar",null).show();
+            }
+        }).addOnCompleteListener(task->scanner.close());
+    }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
     void newSession(){page("Nova compra");EditText name=field("Nome (ex.: Feira do mês)","",false),store=field("Supermercado ou loja","",false);button("Criar compra",()->{String n=name.getText().toString().trim(),st=store.getText().toString().trim();if(n.isEmpty()){message("Informe o nome da compra");return;}android.content.ContentValues v=new android.content.ContentValues();v.put("name",n);v.put("store",st);v.put("month",month);v.put("year",year);v.put("created",System.currentTimeMillis());v.put("finished",0);long id=db.insert("sessions",null,v);if(id>0)editSession(id);else message("Erro ao criar compra");});button("Cancelar",()->home());}
@@ -651,7 +694,7 @@ public class MainActivity extends Activity {
         if(done==0){button("Adicionar produto",()->addItem(id));button("Importar produto da lista",()->importListItem(id));button("Finalizar compra",()->new AlertDialog.Builder(this).setMessage("Finalizar compra e contabilizar no orçamento de "+m+"/"+y+"?").setPositiveButton("Finalizar",(d,w)->{db.execSQL("UPDATE sessions SET finished=1 WHERE id=?",new Object[]{id});editSession(id);}).setNegativeButton("Cancelar",null).show());}
         else button("Reabrir para editar",()->{db.execSQL("UPDATE sessions SET finished=0 WHERE id=?",new Object[]{id});editSession(id);});
         button("Excluir compra",()->new AlertDialog.Builder(this).setMessage("Excluir a compra e todos os seus produtos?").setPositiveButton("Excluir",(d,w)->{db.beginTransaction();try{db.execSQL("DELETE FROM items WHERE session_id=?",new Object[]{id});db.execSQL("DELETE FROM sessions WHERE id=?",new Object[]{id});db.setTransactionSuccessful();}finally{db.endTransaction();}sessions();}).setNegativeButton("Cancelar",null).show());button("Voltar ao histórico",()->sessions());}}
-    void addItem(long id){page("Adicionar produto");EditText name=field("Produto","",false),category=field("Categoria (ex.: Alimentos)","",false),quantity=field("Quantidade","1",true),price=field("Preço unitário (R$)","",true);button("Escolher categoria",()->chooseCategory(category));button("Salvar produto",()->{String n=name.getText().toString().trim();long cents=parse(price.getText().toString());int q;try{q=Integer.parseInt(quantity.getText().toString());}catch(Exception e){q=0;}if(n.isEmpty()||q<=0||cents<0){message("Preencha produto, quantidade e preço válidos");return;}db.execSQL("INSERT INTO items(session_id,name,category,quantity,unit_cents) VALUES(?,?,?,?,?)",new Object[]{id,n,category.getText().toString().trim(),q,cents});editSession(id);});button("Cancelar",()->editSession(id));}
+    void addItem(long id){page("Adicionar produto");EditText name=field("Produto","",false),category=field("Categoria (ex.: Alimentos)","",false),quantity=field("Quantidade","1",true),price=field("Preço unitário (R$)","",true);button("Escolher categoria",()->chooseCategory(category));button("Ler etiqueta ou código de barras pela câmera",()->startScan(name,price));button("Salvar produto",()->{String n=name.getText().toString().trim();long cents=parse(price.getText().toString());int q;try{q=Integer.parseInt(quantity.getText().toString());}catch(Exception e){q=0;}if(n.isEmpty()||q<=0||cents<0){message("Preencha produto, quantidade e preço válidos");return;}db.execSQL("INSERT INTO items(session_id,name,category,quantity,unit_cents) VALUES(?,?,?,?,?)",new Object[]{id,n,category.getText().toString().trim(),q,cents});editSession(id);});button("Cancelar",()->editSession(id));}
     void importListItem(long sessionId){
         page("Importar da lista");
         screen.addView(label("Escolha um produto pendente e informe o preço pago.",15));
@@ -669,6 +712,7 @@ public class MainActivity extends Activity {
         EditText category=field("Categoria (ex.: Alimentação)","",false);
         EditText price=field("Preço unitário em R$","",true);
         button("Escolher categoria",()->chooseCategory(category));
+        button("Ler etiqueta pela câmera",()->startScan(null,price));
         button("Adicionar à compra",()->{
             long cents=parse(price.getText().toString());
             if(cents<0){message("Informe um preço válido");return;}
