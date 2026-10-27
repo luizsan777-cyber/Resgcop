@@ -326,10 +326,40 @@ public class MainActivity extends Activity {
     void sessions(){page("Compras");try(Cursor c=db.rawQuery("SELECT s.id,s.name,s.store,s.month,s.year,s.finished,COALESCE(SUM(i.quantity*i.unit_cents),0) FROM sessions s LEFT JOIN items i ON i.session_id=s.id GROUP BY s.id ORDER BY s.id DESC",null)){while(c.moveToNext()){long id=c.getLong(0);String title=c.getString(1)+" • "+c.getString(2)+"\n"+c.getInt(3)+"/"+c.getInt(4)+" • "+(c.getInt(5)==1?"Finalizada":"Em andamento")+" • "+money(c.getLong(6));button(title,()->editSession(id));}}button("Voltar",()->home());}
     void editSession(long id){try(Cursor c=db.rawQuery("SELECT name,store,month,year,finished FROM sessions WHERE id=?",new String[]{""+id})){if(!c.moveToFirst()){sessions();return;}String name=c.getString(0),store=c.getString(1);int m=c.getInt(2),y=c.getInt(3),done=c.getInt(4);page(name);screen.addView(label(store+" • "+m+"/"+y+" • "+(done==1?"Finalizada":"Em andamento"),17));long sum=scalar("SELECT COALESCE(SUM(quantity*unit_cents),0) FROM items WHERE session_id=?",new String[]{""+id});screen.addView(label("Total da compra: "+money(sum),21));
         try(Cursor items=db.rawQuery("SELECT id,name,category,quantity,unit_cents FROM items WHERE session_id=? ORDER BY id DESC",new String[]{""+id})){while(items.moveToNext()){long itemId=items.getLong(0);String itemName=items.getString(1);int qty=items.getInt(3);long unit=items.getLong(4);screen.addView(label(itemName+" • "+items.getString(2)+"\n"+qty+" × "+money(unit)+" = "+money(qty*unit),16));button("Editar "+itemName,()->editItem(id,itemId));button("Excluir "+itemName,()->new AlertDialog.Builder(this).setMessage("Excluir este item?").setPositiveButton("Excluir",(d,w)->{db.execSQL("DELETE FROM items WHERE id=?",new Object[]{itemId});editSession(id);}).setNegativeButton("Cancelar",null).show());}}
-        if(done==0){button("Adicionar produto",()->addItem(id));button("Finalizar compra",()->new AlertDialog.Builder(this).setMessage("Finalizar compra e contabilizar no orçamento de "+m+"/"+y+"?").setPositiveButton("Finalizar",(d,w)->{db.execSQL("UPDATE sessions SET finished=1 WHERE id=?",new Object[]{id});editSession(id);}).setNegativeButton("Cancelar",null).show());}
+        if(done==0){button("Adicionar produto",()->addItem(id));button("Importar produto da lista",()->importListItem(id));button("Finalizar compra",()->new AlertDialog.Builder(this).setMessage("Finalizar compra e contabilizar no orçamento de "+m+"/"+y+"?").setPositiveButton("Finalizar",(d,w)->{db.execSQL("UPDATE sessions SET finished=1 WHERE id=?",new Object[]{id});editSession(id);}).setNegativeButton("Cancelar",null).show());}
         else button("Reabrir para editar",()->{db.execSQL("UPDATE sessions SET finished=0 WHERE id=?",new Object[]{id});editSession(id);});
         button("Excluir compra",()->new AlertDialog.Builder(this).setMessage("Excluir a compra e todos os seus produtos?").setPositiveButton("Excluir",(d,w)->{db.beginTransaction();try{db.execSQL("DELETE FROM items WHERE session_id=?",new Object[]{id});db.execSQL("DELETE FROM sessions WHERE id=?",new Object[]{id});db.setTransactionSuccessful();}finally{db.endTransaction();}sessions();}).setNegativeButton("Cancelar",null).show());button("Voltar ao histórico",()->sessions());}}
     void addItem(long id){page("Adicionar produto");EditText name=field("Produto","",false),category=field("Categoria (ex.: Alimentos)","",false),quantity=field("Quantidade","1",true),price=field("Preço unitário (R$)","",true);button("Salvar produto",()->{String n=name.getText().toString().trim();long cents=parse(price.getText().toString());int q;try{q=Integer.parseInt(quantity.getText().toString());}catch(Exception e){q=0;}if(n.isEmpty()||q<=0||cents<0){message("Preencha produto, quantidade e preço válidos");return;}db.execSQL("INSERT INTO items(session_id,name,category,quantity,unit_cents) VALUES(?,?,?,?,?)",new Object[]{id,n,category.getText().toString().trim(),q,cents});editSession(id);});button("Cancelar",()->editSession(id));}
+    void importListItem(long sessionId){
+        page("Importar da lista");
+        screen.addView(label("Escolha um produto pendente e informe o preço pago.",15));
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity FROM shopping_list WHERE checked=0 ORDER BY id DESC",null)){
+            if(c.getCount()==0)screen.addView(label("Não há produtos pendentes na lista.",15));
+            while(c.moveToNext()){
+                long listId=c.getLong(0);String name=c.getString(1);int qty=c.getInt(2);
+                button(name+" × "+qty,()->priceImportedItem(sessionId,listId,name,qty));
+            }
+        }
+        button("Voltar",()->editSession(sessionId));
+    }
+    void priceImportedItem(long sessionId,long listId,String name,int qty){
+        page("Preço de "+name);
+        EditText category=field("Categoria (ex.: Alimentação)","",false);
+        EditText price=field("Preço unitário em R$","",true);
+        button("Adicionar à compra",()->{
+            long cents=parse(price.getText().toString());
+            if(cents<0){message("Informe um preço válido");return;}
+            db.beginTransaction();
+            try{
+                db.execSQL("INSERT INTO items(session_id,name,category,quantity,unit_cents) VALUES(?,?,?,?,?)",
+                    new Object[]{sessionId,name,category.getText().toString().trim(),qty,cents});
+                db.execSQL("UPDATE shopping_list SET checked=1 WHERE id=?",new Object[]{listId});
+                db.setTransactionSuccessful();
+            }finally{db.endTransaction();}
+            editSession(sessionId);
+        });
+        button("Voltar à lista",()->importListItem(sessionId));
+    }
     void editItem(long sessionId,long itemId){
         try(Cursor c=db.rawQuery("SELECT name,category,quantity,unit_cents FROM items WHERE id=? AND session_id=?",new String[]{""+itemId,""+sessionId})){
             if(!c.moveToFirst()){message("Produto não encontrado");editSession(sessionId);return;}
