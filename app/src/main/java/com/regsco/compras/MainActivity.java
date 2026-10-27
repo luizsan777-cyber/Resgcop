@@ -31,6 +31,8 @@ public class MainActivity extends Activity {
         db.execSQL("CREATE TABLE IF NOT EXISTS sessions(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,store TEXT NOT NULL,month INTEGER NOT NULL,year INTEGER NOT NULL,finished INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY AUTOINCREMENT,session_id INTEGER NOT NULL,name TEXT NOT NULL,category TEXT NOT NULL,quantity INTEGER NOT NULL,unit_cents INTEGER NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS budgets(month INTEGER NOT NULL,year INTEGER NOT NULL,cents INTEGER NOT NULL,PRIMARY KEY(month,year))");
+        db.execSQL("CREATE TABLE IF NOT EXISTS shopping_list(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1,checked INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS pantry(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1)");
         try(Cursor c=db.rawQuery("SELECT value FROM settings WHERE key='theme'",null)){if(c.moveToFirst())theme=Integer.parseInt(c.getString(0));}
         home();
     }
@@ -88,12 +90,47 @@ public class MainActivity extends Activity {
         button("＋  Iniciar nova compra",()->newSession());
         button("▤  Minhas compras e histórico",()->sessions());
         section("Planejamento");
+        button("☑  Lista de compras",()->shoppingList());
+        button("▣  Estoque da casa",()->pantry());
         button("◉  Ajustar orçamento mensal",()->editBudget());
         button("▦  Escolher mês de referência",()->choosePeriod());
         section("Mais opções");
         button("↗  Compartilhar relatório",()->share());
         button("✦  Personalizar aparência",()->themePage());
         screen.addView(label("Seus dados ficam armazenados neste aparelho.",12));
+    }
+    void shoppingList(){
+        page("Lista de compras");
+        screen.addView(label("Planeje antes de ir ao mercado. Os itens marcados permanecem salvos.",14));
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity,checked FROM shopping_list ORDER BY checked,id DESC",null)){
+            while(c.moveToNext()){
+                long id=c.getLong(0);String name=c.getString(1);int qty=c.getInt(2),checked=c.getInt(3);
+                button((checked==1?"✓  ":"○  ")+name+"  × "+qty,()->{db.execSQL("UPDATE shopping_list SET checked=? WHERE id=?",new Object[]{checked==1?0:1,id});shoppingList();});
+                button("Remover "+name,()->{db.execSQL("DELETE FROM shopping_list WHERE id=?",new Object[]{id});shoppingList();});
+            }
+        }
+        section("Adicionar à lista");
+        EditText name=field("Nome do produto","",false),quantity=field("Quantidade","1",true);
+        button("Adicionar item",()->{int q=positive(quantity.getText().toString());String n=name.getText().toString().trim();if(n.isEmpty()||q<1){message("Informe produto e quantidade");return;}db.execSQL("INSERT INTO shopping_list(name,quantity) VALUES(?,?)",new Object[]{n,q});shoppingList();});
+        button("Voltar",()->home());
+    }
+    int positive(String value){try{int n=Integer.parseInt(value.trim());return n>0?n:0;}catch(Exception e){return 0;}}
+    void pantry(){
+        page("Estoque da casa");
+        screen.addView(label("Controle os produtos disponíveis e suas quantidades.",14));
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity FROM pantry ORDER BY name",null)){
+            while(c.moveToNext()){
+                long id=c.getLong(0);String name=c.getString(1);int q=c.getInt(2);
+                screen.addView(label(name+"  •  "+q+" unidade(s)",17));
+                button("−  Consumir 1",()->{db.execSQL("UPDATE pantry SET quantity=quantity-1 WHERE id=? AND quantity>0",new Object[]{id});pantry();});
+                button("＋  Adicionar 1",()->{db.execSQL("UPDATE pantry SET quantity=quantity+1 WHERE id=?",new Object[]{id});pantry();});
+                button("Excluir "+name,()->new AlertDialog.Builder(this).setMessage("Excluir do estoque?").setPositiveButton("Excluir",(d,w)->{db.execSQL("DELETE FROM pantry WHERE id=?",new Object[]{id});pantry();}).setNegativeButton("Cancelar",null).show());
+            }
+        }
+        section("Cadastrar no estoque");
+        EditText name=field("Produto","",false),quantity=field("Quantidade","1",true);
+        button("Salvar produto",()->{String n=name.getText().toString().trim();int q=positive(quantity.getText().toString());if(n.isEmpty()||q==0){message("Informe produto e quantidade");return;}db.execSQL("INSERT INTO pantry(name,quantity) VALUES(?,?)",new Object[]{n,q});pantry();});
+        button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
