@@ -90,6 +90,7 @@ public class MainActivity extends Activity {
         card("SALDO DISPONÍVEL",money(b-spentAmount),"Orçamento: "+money(b)+"   •   Gasto: "+money(spentAmount));
         if(b>0){ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgress((int)Math.min(100,spentAmount*100/b));bar.setProgressTintList(android.content.res.ColorStateList.valueOf(accent()));margin(bar,8,8);screen.addView(bar);}
         if(b>0&&spentAmount>b)screen.addView(label("Atenção: orçamento ultrapassado!",16));
+        if(b>0){long pending=scalar("SELECT COALESCE(SUM(i.quantity*i.unit_cents),0) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=0 AND s.month=? AND s.year=?",new String[]{""+month,""+year});if(pending>0)screen.addView(label("Compras em andamento: "+money(pending)+" • projeção do saldo: "+money(b-spentAmount-pending),14));}
         section("Vamos às compras?");
         button("＋  Iniciar nova compra",()->newSession());
         button("▤  Minhas compras e histórico",()->sessions());
@@ -97,8 +98,10 @@ public class MainActivity extends Activity {
         button("☑  Lista de compras",()->shoppingList());
         button("▣  Estoque da casa",()->pantry());
         button("⚠  Produtos para repor",()->lowStock());
+        button("▣  Resumo do planejamento",()->planningSummary());
         button("◉  Ajustar orçamento mensal",()->editBudget());
         button("▦  Escolher mês de referência",()->choosePeriod());
+        button("▧  Compras em andamento",()->activeSessions());
         section("Mais opções");
         button("▤  Cesta básica recorrente",()->basketPage());
         button("▥  Relatórios por categoria",()->categoryReport());
@@ -395,6 +398,32 @@ public class MainActivity extends Activity {
                 });
             }
             if(count==0)screen.addView(label("Nenhum item da cesta precisa de reposição.",16));
+        }
+        button("Voltar",()->home());
+    }
+    void planningSummary(){
+        page("Resumo do planejamento");
+        long pending=scalar("SELECT COUNT(*) FROM shopping_list WHERE checked=0",null);
+        long checked=scalar("SELECT COUNT(*) FROM shopping_list WHERE checked=1",null);
+        long stock=scalar("SELECT COUNT(*) FROM pantry WHERE quantity>0",null);
+        long open=scalar("SELECT COUNT(*) FROM sessions WHERE finished=0",null);
+        card("ITENS PENDENTES",""+pending,"Produtos que ainda precisam ser comprados");
+        card("ITENS CONCLUÍDOS",""+checked,"Produtos marcados na lista");
+        card("PRODUTOS EM ESTOQUE",""+stock,"Tipos de produtos com quantidade positiva");
+        card("COMPRAS EM ANDAMENTO",""+open,"Sessões ainda não finalizadas");
+        button("Abrir lista",()->shoppingList());
+        button("Ver itens para repor",()->lowStock());
+        button("Ver compras abertas",()->activeSessions());
+        button("Voltar",()->home());
+    }
+    void activeSessions(){
+        page("Compras em andamento");
+        try(Cursor c=db.rawQuery("SELECT s.id,s.name,s.store,s.month,s.year,COALESCE(SUM(i.quantity*i.unit_cents),0) FROM sessions s LEFT JOIN items i ON i.session_id=s.id WHERE s.finished=0 GROUP BY s.id ORDER BY s.created DESC",null)){
+            if(c.getCount()==0)screen.addView(label("Nenhuma compra em andamento.",16));
+            while(c.moveToNext()){
+                long id=c.getLong(0);
+                button(c.getString(1)+"  •  "+money(c.getLong(5))+"\n"+c.getString(2)+"  •  "+c.getInt(3)+"/"+c.getInt(4),()->editSession(id));
+            }
         }
         button("Voltar",()->home());
     }
