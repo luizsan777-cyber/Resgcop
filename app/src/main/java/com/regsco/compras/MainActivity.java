@@ -6,6 +6,8 @@ import android.content.*;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Color;
+import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
 import android.text.InputType;
 import android.view.*;
 import android.widget.*;
@@ -32,17 +34,67 @@ public class MainActivity extends Activity {
         try(Cursor c=db.rawQuery("SELECT value FROM settings WHERE key='theme'",null)){if(c.moveToFirst())theme=Integer.parseInt(c.getString(0));}
         home();
     }
-    TextView label(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(fg());v.setPadding(12,12,12,12);return v;}
-    void button(String title,Runnable click){Button b=new Button(this);b.setText(title);b.setAllCaps(false);screen.addView(b);b.setOnClickListener(v->click.run());}
-    void page(String title){ScrollView scroll=new ScrollView(this);screen=new LinearLayout(this);screen.setOrientation(LinearLayout.VERTICAL);screen.setPadding(18,22,18,28);screen.setBackgroundColor(bg());scroll.addView(screen);setContentView(scroll);screen.addView(label("RegsCo  •  "+title,24));}
-    EditText field(String hint,String value,boolean numeric){EditText e=new EditText(this);e.setHint(hint);e.setText(value);e.setTextColor(fg());e.setHintTextColor(theme==2?0xffb9b0c2:0xff777777);if(numeric)e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);screen.addView(e);return e;}
+    int accent(){return theme==0?0xff43785c:theme==1?0xffc04c86:0xffad79e8;}
+    int panel(){return theme==0?0xffffffff:theme==1?0xfffffafc:0xff30203f;}
+    int muted(){return theme==2?0xffd5c9e1:theme==1?0xff815d73:0xff65806f;}
+    int dp(int v){return (int)(getResources().getDisplayMetrics().density*v+0.5f);}
+    GradientDrawable shape(int color,int radius){GradientDrawable d=new GradientDrawable();d.setColor(color);d.setCornerRadius(dp(radius));return d;}
+    void margin(View v,int top,int bottom){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.setMargins(0,dp(top),0,dp(bottom));v.setLayoutParams(p);}
+    TextView label(String s,int size){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(fg());v.setPadding(dp(12),dp(12),dp(12),dp(12));return v;}
+    void button(String title,Runnable click){
+        TextView b=label(title+"   ›",16);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);
+        b.setGravity(Gravity.CENTER_VERTICAL);b.setMinHeight(dp(56));b.setPadding(dp(20),dp(14),dp(20),dp(14));
+        b.setBackground(shape(panel(),18));b.setElevation(dp(2));margin(b,6,6);
+        screen.addView(b);b.setOnClickListener(v->click.run());
+    }
+    void section(String title){TextView v=label(title,18);v.setTypeface(Typeface.DEFAULT,Typeface.BOLD);margin(v,18,4);screen.addView(v);}
+    void card(String heading,String value,String detail){
+        LinearLayout wrap=new LinearLayout(this);wrap.setOrientation(LinearLayout.VERTICAL);
+        wrap.setPadding(dp(18),dp(15),dp(18),dp(15));wrap.setBackground(shape(panel(),22));wrap.setElevation(dp(3));margin(wrap,8,8);
+        TextView h=label(heading,14);h.setTextColor(muted());wrap.addView(h);
+        TextView amount=label(value,27);amount.setTypeface(Typeface.DEFAULT,Typeface.BOLD);amount.setTextColor(accent());wrap.addView(amount);
+        TextView sub=label(detail,13);sub.setTextColor(muted());wrap.addView(sub);screen.addView(wrap);
+    }
+    void page(String title){
+        getWindow().setStatusBarColor(theme==2?0xff1c1127:accent());
+        getWindow().setNavigationBarColor(bg());
+        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
+        screen=new LinearLayout(this);screen.setOrientation(LinearLayout.VERTICAL);
+        screen.setPadding(dp(20),dp(24),dp(20),dp(36));screen.setBackgroundColor(bg());
+        scroll.addView(screen);setContentView(scroll);
+        TextView brand=label("R E G S C O",13);brand.setTextColor(accent());brand.setTypeface(Typeface.DEFAULT,Typeface.BOLD);screen.addView(brand);
+        TextView h=label(title,29);h.setTypeface(Typeface.DEFAULT,Typeface.BOLD);screen.addView(h);
+    }
+    EditText field(String hint,String value,boolean numeric){
+        EditText e=new EditText(this);e.setHint(hint);e.setText(value);
+        e.setTextColor(fg());e.setHintTextColor(muted());
+        e.setPadding(dp(18),dp(14),dp(18),dp(14));e.setBackground(shape(panel(),16));
+        if(numeric)e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        margin(e,7,7);screen.addView(e);return e;
+    }
     void message(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
     long scalar(String sql,String[] args){try(Cursor c=db.rawQuery(sql,args)){return c.moveToFirst()?c.getLong(0):0;}}
     String period(){return String.format(new Locale("pt","BR"),"%02d/%d",month,year);}
     long spent(){return scalar("SELECT COALESCE(SUM(i.quantity*i.unit_cents),0) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=?",new String[]{""+month,""+year});}
     long budget(){return scalar("SELECT COALESCE(cents,0) FROM budgets WHERE month=? AND year=?",new String[]{""+month,""+year});}
-    void home(){page("Início");screen.addView(label("Referência: "+period(),18));long b=budget(),s=spent();screen.addView(label("Orçamento: "+money(b)+"\nGasto finalizado: "+money(s)+"\nSaldo: "+money(b-s),20));if(b>0&&s>b)screen.addView(label("Atenção: orçamento ultrapassado!",17));
-        button("Nova compra",()->newSession());button("Compras em andamento e histórico",()->sessions());button("Definir orçamento do mês",()->editBudget());button("Mudar mês de referência",()->choosePeriod());button("Compartilhar relatório",()->share());button("Temas",()->themePage());}
+    void home(){
+        page("Suas compras");
+        screen.addView(label("Organize o mês com tranquilidade • "+period(),15));
+        long b=budget(),spentAmount=spent();
+        card("SALDO DISPONÍVEL",money(b-spentAmount),"Orçamento: "+money(b)+"   •   Gasto: "+money(spentAmount));
+        if(b>0){ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);bar.setMax(100);bar.setProgress((int)Math.min(100,spentAmount*100/b));bar.setProgressTintList(android.content.res.ColorStateList.valueOf(accent()));margin(bar,8,8);screen.addView(bar);}
+        if(b>0&&spentAmount>b)screen.addView(label("Atenção: orçamento ultrapassado!",16));
+        section("Vamos às compras?");
+        button("＋  Iniciar nova compra",()->newSession());
+        button("▤  Minhas compras e histórico",()->sessions());
+        section("Planejamento");
+        button("◉  Ajustar orçamento mensal",()->editBudget());
+        button("▦  Escolher mês de referência",()->choosePeriod());
+        section("Mais opções");
+        button("↗  Compartilhar relatório",()->share());
+        button("✦  Personalizar aparência",()->themePage());
+        screen.addView(label("Seus dados ficam armazenados neste aparelho.",12));
+    }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
     void newSession(){page("Nova compra");EditText name=field("Nome (ex.: Feira do mês)","",false),store=field("Supermercado ou loja","",false);button("Criar compra",()->{String n=name.getText().toString().trim(),st=store.getText().toString().trim();if(n.isEmpty()){message("Informe o nome da compra");return;}android.content.ContentValues v=new android.content.ContentValues();v.put("name",n);v.put("store",st);v.put("month",month);v.put("year",year);v.put("created",System.currentTimeMillis());v.put("finished",0);long id=db.insert("sessions",null,v);if(id>0)editSession(id);else message("Erro ao criar compra");});button("Cancelar",()->home());}
