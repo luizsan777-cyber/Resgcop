@@ -108,8 +108,10 @@ public class MainActivity extends Activity {
         button("▣  Planejar compra pelo estoque",()->planFromStock());
         button("▥  Relatórios por categoria",()->categoryReport());
         button("▤  Gastos dos últimos 6 meses",()->sixMonthReport());
+        button("▥  Comparar meses",()->compareMonths());
         button("⌕  Histórico de preços",()->priceHistory());
         button("▦  Comparar preços registrados",()->comparePrices());
+        button("▣  Produtos mais comprados",()->topProducts());
         button("⚙  Gerenciar lojas",()->storesPage());
         button("↗  Compartilhar relatório",()->share());
         button("⇩  Exportar relatório CSV",()->exportCsv());
@@ -545,6 +547,29 @@ public class MainActivity extends Activity {
             basketPage();
         });
         button("Cancelar",()->basketPage());
+    }
+    void compareMonths(){
+        page("Comparar meses");
+        Calendar previous=Calendar.getInstance();previous.set(year,month-1,1);previous.add(Calendar.MONTH,-1);
+        int pm=previous.get(Calendar.MONTH)+1,py=previous.get(Calendar.YEAR);
+        long current=spent();
+        long last=scalar("SELECT COALESCE(SUM(i.quantity*i.unit_cents),0) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=?",new String[]{""+pm,""+py});
+        card("MÊS ATUAL • "+period(),money(current),"Somente compras finalizadas");
+        card("MÊS ANTERIOR • "+String.format(Locale.forLanguageTag("pt-BR"),"%02d/%d",pm,py),money(last),"Somente compras finalizadas");
+        long difference=current-last;
+        screen.addView(label((difference>0?"Aumento de ":difference<0?"Redução de ":"Sem diferença: ")+money(Math.abs(difference)),18));
+        if(last>0)screen.addView(label("Variação: "+String.format(Locale.forLanguageTag("pt-BR"),"%.1f%%",(difference*100.0/last)),16));
+        else screen.addView(label("Sem base de gastos no mês anterior para calcular a variação percentual.",14));
+        button("Escolher outro mês",()->choosePeriod());button("Voltar",()->home());
+    }
+    void topProducts(){
+        page("Produtos mais comprados");
+        screen.addView(label("Quantidade e valor acumulados nas compras finalizadas do mês "+period()+".",14));
+        try(Cursor c=db.rawQuery("SELECT i.name,SUM(i.quantity),SUM(i.quantity*i.unit_cents) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=? GROUP BY LOWER(TRIM(i.name)) ORDER BY SUM(i.quantity*i.unit_cents) DESC LIMIT 30",new String[]{""+month,""+year})){
+            if(c.getCount()==0)screen.addView(label("Nenhuma compra finalizada neste mês.",15));
+            while(c.moveToNext())screen.addView(label(c.getString(0)+"  •  "+c.getLong(1)+" un.\nTotal gasto: "+money(c.getLong(2)),16));
+        }
+        button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
