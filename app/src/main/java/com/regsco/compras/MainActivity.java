@@ -105,9 +105,11 @@ public class MainActivity extends Activity {
         button("▧  Compras em andamento",()->activeSessions());
         section("Mais opções");
         button("▤  Cesta básica recorrente",()->basketPage());
+        button("Limpar itens concluídos",()->confirmClearChecked());
         button("▣  Planejar compra pelo estoque",()->planFromStock());
         button("▥  Relatórios por categoria",()->categoryReport());
         button("▤  Gastos dos últimos 6 meses",()->sixMonthReport());
+        button("Resumo por loja",()->storeSummary());
         button("▥  Comparar meses",()->compareMonths());
         button("⌕  Histórico de preços",()->priceHistory());
         button("▦  Comparar preços registrados",()->comparePrices());
@@ -568,6 +570,22 @@ public class MainActivity extends Activity {
         try(Cursor c=db.rawQuery("SELECT i.name,SUM(i.quantity),SUM(i.quantity*i.unit_cents) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=? GROUP BY LOWER(TRIM(i.name)) ORDER BY SUM(i.quantity*i.unit_cents) DESC LIMIT 30",new String[]{""+month,""+year})){
             if(c.getCount()==0)screen.addView(label("Nenhuma compra finalizada neste mês.",15));
             while(c.moveToNext())screen.addView(label(c.getString(0)+"  •  "+c.getLong(1)+" un.\nTotal gasto: "+money(c.getLong(2)),16));
+        }
+        button("Voltar",()->home());
+    }
+    void confirmClearChecked(){
+        long count=scalar("SELECT COUNT(*) FROM shopping_list WHERE checked=1",null);
+        if(count==0){message("Não há itens concluídos");return;}
+        new AlertDialog.Builder(this).setTitle("Limpar lista")
+            .setMessage("Remover "+count+" itens concluídos? Os pendentes serão preservados.")
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Remover",(d,w)->{db.execSQL("DELETE FROM shopping_list WHERE checked=1");shoppingList();}).show();
+    }
+    void storeSummary(){
+        page("Gastos por loja");
+        try(Cursor c=db.rawQuery("SELECT s.store,COUNT(DISTINCT s.id),COALESCE(SUM(i.quantity*i.unit_cents),0) FROM sessions s LEFT JOIN items i ON i.session_id=s.id WHERE s.finished=1 AND s.month=? AND s.year=? GROUP BY s.store ORDER BY 3 DESC",new String[]{""+month,""+year})){
+            if(c.getCount()==0)screen.addView(label("Nenhuma compra finalizada no período.",16));
+            while(c.moveToNext())card(c.getString(0),money(c.getLong(2)),c.getLong(1)+" compra(s)");
         }
         button("Voltar",()->home());
     }
