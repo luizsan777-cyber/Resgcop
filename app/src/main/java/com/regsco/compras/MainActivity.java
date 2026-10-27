@@ -454,6 +454,7 @@ public class MainActivity extends Activity {
     }
     String csvCell(String value){
         if(value==null)value="";
+        if(!value.isEmpty() && "=+-@".indexOf(value.charAt(0))>=0)value="\u0027"+value;
         return "\"" + value.replace("\"","\"\"").replace("\r"," ").replace("\n"," ") + "\"";
     }
     String reportCsv(){
@@ -476,6 +477,10 @@ public class MainActivity extends Activity {
         i.setType("text/csv");i.putExtra(Intent.EXTRA_TITLE,"RegsCo-relatorio-"+period().replace('/','-')+".csv");
         startActivityForResult(i,EXPORT_CSV);
     }
+    void chooseCategory(EditText target){
+        String[] choices={"Alimentação","Carnes e frios","Hortifruti","Bebidas","Limpeza","Higiene pessoal","Farmácia","Casa","Outros"};
+        new AlertDialog.Builder(this).setTitle("Categoria do produto").setItems(choices,(d,w)->target.setText(choices[w])).setNegativeButton("Cancelar",null).show();
+    }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
     void newSession(){page("Nova compra");EditText name=field("Nome (ex.: Feira do mês)","",false),store=field("Supermercado ou loja","",false);button("Criar compra",()->{String n=name.getText().toString().trim(),st=store.getText().toString().trim();if(n.isEmpty()){message("Informe o nome da compra");return;}android.content.ContentValues v=new android.content.ContentValues();v.put("name",n);v.put("store",st);v.put("month",month);v.put("year",year);v.put("created",System.currentTimeMillis());v.put("finished",0);long id=db.insert("sessions",null,v);if(id>0)editSession(id);else message("Erro ao criar compra");});button("Cancelar",()->home());}
@@ -485,7 +490,7 @@ public class MainActivity extends Activity {
         if(done==0){button("Adicionar produto",()->addItem(id));button("Importar produto da lista",()->importListItem(id));button("Finalizar compra",()->new AlertDialog.Builder(this).setMessage("Finalizar compra e contabilizar no orçamento de "+m+"/"+y+"?").setPositiveButton("Finalizar",(d,w)->{db.execSQL("UPDATE sessions SET finished=1 WHERE id=?",new Object[]{id});editSession(id);}).setNegativeButton("Cancelar",null).show());}
         else button("Reabrir para editar",()->{db.execSQL("UPDATE sessions SET finished=0 WHERE id=?",new Object[]{id});editSession(id);});
         button("Excluir compra",()->new AlertDialog.Builder(this).setMessage("Excluir a compra e todos os seus produtos?").setPositiveButton("Excluir",(d,w)->{db.beginTransaction();try{db.execSQL("DELETE FROM items WHERE session_id=?",new Object[]{id});db.execSQL("DELETE FROM sessions WHERE id=?",new Object[]{id});db.setTransactionSuccessful();}finally{db.endTransaction();}sessions();}).setNegativeButton("Cancelar",null).show());button("Voltar ao histórico",()->sessions());}}
-    void addItem(long id){page("Adicionar produto");EditText name=field("Produto","",false),category=field("Categoria (ex.: Alimentos)","",false),quantity=field("Quantidade","1",true),price=field("Preço unitário (R$)","",true);button("Salvar produto",()->{String n=name.getText().toString().trim();long cents=parse(price.getText().toString());int q;try{q=Integer.parseInt(quantity.getText().toString());}catch(Exception e){q=0;}if(n.isEmpty()||q<=0||cents<0){message("Preencha produto, quantidade e preço válidos");return;}db.execSQL("INSERT INTO items(session_id,name,category,quantity,unit_cents) VALUES(?,?,?,?,?)",new Object[]{id,n,category.getText().toString().trim(),q,cents});editSession(id);});button("Cancelar",()->editSession(id));}
+    void addItem(long id){page("Adicionar produto");EditText name=field("Produto","",false),category=field("Categoria (ex.: Alimentos)","",false),quantity=field("Quantidade","1",true),price=field("Preço unitário (R$)","",true);button("Escolher categoria",()->chooseCategory(category));button("Salvar produto",()->{String n=name.getText().toString().trim();long cents=parse(price.getText().toString());int q;try{q=Integer.parseInt(quantity.getText().toString());}catch(Exception e){q=0;}if(n.isEmpty()||q<=0||cents<0){message("Preencha produto, quantidade e preço válidos");return;}db.execSQL("INSERT INTO items(session_id,name,category,quantity,unit_cents) VALUES(?,?,?,?,?)",new Object[]{id,n,category.getText().toString().trim(),q,cents});editSession(id);});button("Cancelar",()->editSession(id));}
     void importListItem(long sessionId){
         page("Importar da lista");
         screen.addView(label("Escolha um produto pendente e informe o preço pago.",15));
@@ -502,6 +507,7 @@ public class MainActivity extends Activity {
         page("Preço de "+name);
         EditText category=field("Categoria (ex.: Alimentação)","",false);
         EditText price=field("Preço unitário em R$","",true);
+        button("Escolher categoria",()->chooseCategory(category));
         button("Adicionar à compra",()->{
             long cents=parse(price.getText().toString());
             if(cents<0){message("Informe um preço válido");return;}
@@ -524,6 +530,7 @@ public class MainActivity extends Activity {
             EditText category=field("Categoria",c.getString(1)==null?"":c.getString(1),false);
             EditText quantity=field("Quantidade",""+c.getInt(2),true);
             EditText price=field("Preço unitário (R$)",money(c.getLong(3)).replace("R$","").trim(),true);
+            button("Escolher categoria",()->chooseCategory(category));
             button("Salvar alterações",()->{
                 String n=name.getText().toString().trim();
                 int q=positive(quantity.getText().toString());
