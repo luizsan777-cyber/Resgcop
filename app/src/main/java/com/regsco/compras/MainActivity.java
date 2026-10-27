@@ -21,6 +21,7 @@ public class MainActivity extends Activity {
     SQLiteDatabase db;
     static final int CAMERA_SCAN=704;
     EditText scanNameTarget,scanPriceTarget;
+    android.net.Uri scanPhotoUri;
     LinearLayout screen;
     int theme=0;
     int month=Calendar.getInstance().get(Calendar.MONTH)+1, year=Calendar.getInstance().get(Calendar.YEAR);
@@ -226,7 +227,7 @@ public class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK)return;
+        if(result!=RESULT_OK){if(request==CAMERA_SCAN)discardScanPhoto();return;}
         if(request==CAMERA_SCAN){handleCameraResult(data);return;}
         if(data==null||data.getData()==null)return;
         try{
@@ -650,28 +651,60 @@ public class MainActivity extends Activity {
         scanNameTarget=name;scanPriceTarget=price;
         Intent intent=new Intent(android.provider.MediaStore.ACTION_IMAGE_CAPTURE);
         if(intent.resolveActivity(getPackageManager())==null){message("Nenhum aplicativo de câmera disponível");return;}
-        startActivityForResult(intent,CAMERA_SCAN);
+        scanPhotoUri=null;
+        try{
+            android.content.ContentValues values=new android.content.ContentValues();
+            values.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME,"regsco-etiqueta-"+System.currentTimeMillis()+".jpg");
+            values.put(android.provider.MediaStore.Images.Media.MIME_TYPE,"image/jpeg");
+            scanPhotoUri=getContentResolver().insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,values);
+            if(scanPhotoUri==null)throw new IOException("Não foi possível preparar a imagem");
+            intent.putExtra(android.provider.MediaStore.EXTRA_OUTPUT,scanPhotoUri);
+            intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION|Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivityForResult(intent,CAMERA_SCAN);
+        }catch(Exception e){discardScanPhoto();message("Não foi possível abrir a câmera: "+e.getMessage());}
+    }
+    void discardScanPhoto(){
+        if(scanPhotoUri==null)return;
+        try{getContentResolver().delete(scanPhotoUri,null,null);}catch(Exception ignored){}
+        scanPhotoUri=null;
     }
     void handleCameraResult(Intent data){
         android.graphics.Bitmap bitmap=null;
-        if(data!=null&&data.getExtras()!=null){
-            Object photo=data.getExtras().get("data");
-            if(photo instanceof android.graphics.Bitmap)bitmap=(android.graphics.Bitmap)photo;
-        }
+        try{
+            if(scanPhotoUri!=null){
+                android.graphics.BitmapFactory.Options options=new android.graphics.BitmapFactory.Options();
+                options.inJustDecodeBounds=true;
+                try(InputStream in=getContentResolver().openInputStream(scanPhotoUri)){android.graphics.BitmapFactory.decodeStream(in,null,options);}
+                options.inJustDecodeBounds=false;
+                int max=Math.max(options.outWidth,options.outHeight);
+                options.inSampleSize=1;
+                while(max/options.inSampleSize>2400)options.inSampleSize*=2;
+                try(InputStream in=getContentResolver().openInputStream(scanPhotoUri)){bitmap=android.graphics.BitmapFactory.decodeStream(in,null,options);}
+            }
+            if(bitmap==null&&data!=null&&data.getExtras()!=null){
+                Object photo=data.getExtras().get("data");
+                if(photo instanceof android.graphics.Bitmap)bitmap=(android.graphics.Bitmap)photo;
+            }
+        }catch(Exception e){message("Erro ao ler fotografia: "+e.getMessage());}
+        finally{discardScanPhoto();}
         if(bitmap==null){message("A câmera não retornou uma imagem");return;}
         com.google.mlkit.vision.common.InputImage image=com.google.mlkit.vision.common.InputImage.fromBitmap(bitmap,0);
         com.google.mlkit.vision.text.TextRecognizer recognizer=com.google.mlkit.vision.text.TextRecognition.getClient(com.google.mlkit.vision.text.latin.TextRecognizerOptions.DEFAULT_OPTIONS);
         recognizer.process(image).addOnSuccessListener(result->{
             String detected=result.getText();
+            java.util.ArrayList<String> prices=new java.util.ArrayList<>();
             java.util.regex.Matcher matcher=java.util.regex.Pattern.compile("(?:R\\$\\s*)?(\\d{1,5}[,.]\\d{2})").matcher(detected);
-            String price="";
-            while(matcher.find()){price=matcher.group(1);break;}
-            final String foundPrice=price;
-            new AlertDialog.Builder(this).setTitle("Texto reconhecido")
-                .setMessage((detected.isEmpty()?"Nenhum texto reconhecido. Tente uma foto mais próxima.":detected)+"\\n\\nConfira o preço antes de salvar.")
-                .setPositiveButton("Usar preço",(d,w)->{if(scanPriceTarget!=null&&!foundPrice.isEmpty())scanPriceTarget.setText(foundPrice);})
-                .setNegativeButton("Cancelar",null).show();
-        }).addOnFailureListener(e->message("Não foi possível reconhecer a etiqueta: "+e.getMessage()))
+            while(matcher.find()){String v=matcher.group(1);if(!prices.contains(v))prices.add(v);}
+            String[] choices=prices.toArray(new String[0]);
+            if(choices.length==0){
+                new AlertDialog.Builder(this).setTitle("Texto da etiqueta").setMessage(detected.isEmpty()?"Não foi possível identificar texto. Tente novamente com boa iluminação.":detected).setPositiveButton("OK",null).show();
+            }else{
+                new AlertDialog.Builder(this).setTitle("Selecione o preço correto")
+                    .setMessage("Confira se o valor é de varejo ou atacado e se existe quantidade mínima.\n\n"+detected)
+                    .setItems(choices,(d,which)->{if(scanPriceTarget!=null)scanPriceTarget.setText(choices[which]);})
+                    .setNegativeButton("Cancelar",null).show();
+            }
+        }).addOnFailureListener(e->message("Erro ao reconhecer etiqueta: "+e.getMessage()))
           .addOnCompleteListener(task->recognizer.close());
         com.google.mlkit.vision.barcode.BarcodeScanner scanner=com.google.mlkit.vision.barcode.BarcodeScanning.getClient();
         scanner.process(image).addOnSuccessListener(codes->{
@@ -679,9 +712,9 @@ public class MainActivity extends Activity {
             String value=codes.get(0).getRawValue();
             if(value==null||value.isEmpty())return;
             if(scanNameTarget!=null&&scanNameTarget.getText().toString().trim().isEmpty()){
-                new AlertDialog.Builder(this).setTitle("Código de barras detectado")
-                    .setMessage(value+"\\nO código não identifica automaticamente o nome do produto.")
-                    .setPositiveButton("Preencher código",(d,w)->scanNameTarget.setText(value))
+                new AlertDialog.Builder(this).setTitle("Código de barras identificado")
+                    .setMessage(value+"\nO código não identifica automaticamente o nome do produto.")
+                    .setPositiveButton("Usar código",(d,w)->scanNameTarget.setText(value))
                     .setNegativeButton("Ignorar",null).show();
             }
         }).addOnCompleteListener(task->scanner.close());
