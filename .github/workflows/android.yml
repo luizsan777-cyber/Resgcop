@@ -23,9 +23,6 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Preparar Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Preparar Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -36,6 +33,7 @@ jobs:
           java -version
           gradle --version
           echo "ANDROID_HOME=$ANDROID_HOME"
+          test -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" || command -v sdkmanager
           sdkmanager --list_installed
 
       - name: Instalar plataforma Android
