@@ -112,6 +112,8 @@ public class MainActivity extends Activity {
         button("▤  Gastos dos últimos 6 meses",()->sixMonthReport());
         button("Resumo por loja",()->storeSummary());
         button("Pesquisar produtos na lista",()->searchList());
+        button("Compartilhar lista de compras",()->shareShoppingList());
+        button("Resumo de itens pendentes",()->pendingListSummary());
         button("▥  Comparar meses",()->compareMonths());
         button("⌕  Histórico de preços",()->priceHistory());
         button("▦  Comparar preços registrados",()->comparePrices());
@@ -617,6 +619,28 @@ public class MainActivity extends Activity {
         }
         button("Nova pesquisa",()->searchList());
         button("Voltar",()->shoppingList());
+    }
+    void shareShoppingList(){
+        StringBuilder b=new StringBuilder("RegsCo - Lista de compras\n");
+        int count=0;
+        try(Cursor c=db.rawQuery("SELECT name,quantity FROM shopping_list WHERE checked=0 ORDER BY name COLLATE NOCASE",null)){
+            while(c.moveToNext()){b.append("• ").append(c.getString(0)).append(" × ").append(c.getInt(1)).append("\n");count++;}
+        }
+        if(count==0){message("Sua lista não possui produtos pendentes");return;}
+        Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");
+        send.putExtra(Intent.EXTRA_TEXT,b.toString());
+        startActivity(Intent.createChooser(send,"Compartilhar lista"));
+    }
+    void pendingListSummary(){
+        page("Resumo da lista");
+        long products=scalar("SELECT COUNT(*) FROM shopping_list WHERE checked=0",null);
+        long units=scalar("SELECT COALESCE(SUM(quantity),0) FROM shopping_list WHERE checked=0",null);
+        long completed=scalar("SELECT COUNT(*) FROM shopping_list WHERE checked=1",null);
+        card("PRODUTOS PENDENTES",""+products,"Total de unidades: "+units);
+        card("PRODUTOS CONCLUÍDOS",""+completed,"Itens já marcados como comprados");
+        button("Compartilhar lista",()->shareShoppingList());
+        button("Abrir lista",()->shoppingList());
+        button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
