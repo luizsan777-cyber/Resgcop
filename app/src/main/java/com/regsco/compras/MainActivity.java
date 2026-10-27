@@ -97,6 +97,8 @@ public class MainActivity extends Activity {
         button("◉  Ajustar orçamento mensal",()->editBudget());
         button("▦  Escolher mês de referência",()->choosePeriod());
         section("Mais opções");
+        button("▥  Relatórios por categoria",()->categoryReport());
+        button("⌕  Histórico de preços",()->priceHistory());
         button("↗  Compartilhar relatório",()->share());
         button("✦  Personalizar aparência",()->themePage());
         button("⇩  Backup e restauração",()->backupPage());
@@ -218,6 +220,49 @@ public class MainActivity extends Activity {
                 message("Backup restaurado");home();
             }
         }catch(Exception e){message("Erro: "+e.getMessage());}
+    }
+    void categoryReport(){
+        page("Relatório mensal");
+        screen.addView(label("Gastos finalizados em "+period(),16));
+        card("TOTAL DO MÊS",money(spent()),"Saldo do orçamento: "+money(budget()-spent()));
+        section("Gastos por categoria");
+        long total=spent();
+        try(Cursor c=db.rawQuery("SELECT CASE WHEN TRIM(i.category)='' THEN 'Sem categoria' ELSE i.category END AS category, SUM(i.quantity*i.unit_cents) AS value FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=? GROUP BY category ORDER BY value DESC",new String[]{""+month,""+year})){
+            if(c.getCount()==0)screen.addView(label("Nenhuma compra finalizada neste mês.",15));
+            while(c.moveToNext()){
+                long value=c.getLong(1);String category=c.getString(0);
+                int percent=total>0?(int)Math.round(value*100.0/total):0;
+                screen.addView(label(category+"  •  "+money(value)+"  ("+percent+"%)",16));
+                ProgressBar bar=new ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);
+                bar.setMax(100);bar.setProgress(percent);bar.setProgressTintList(android.content.res.ColorStateList.valueOf(accent()));
+                margin(bar,2,12);screen.addView(bar);
+            }
+        }
+        section("Por estabelecimento");
+        try(Cursor c=db.rawQuery("SELECT CASE WHEN TRIM(s.store)='' THEN 'Não informado' ELSE s.store END, SUM(i.quantity*i.unit_cents) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=? GROUP BY s.store ORDER BY 2 DESC",new String[]{""+month,""+year})){
+            while(c.moveToNext())screen.addView(label(c.getString(0)+"  •  "+money(c.getLong(1)),16));
+        }
+        button("Compartilhar relatório",()->share());
+        button("Voltar",()->home());
+    }
+    void priceHistory(){
+        page("Histórico de preços");
+        screen.addView(label("Preços registrados nas suas compras, organizados do mais recente para o mais antigo. Não são ofertas em tempo real.",14));
+        EditText search=field("Buscar produto (ex.: arroz)","",false);
+        button("Pesquisar",()->showPriceResults(search.getText().toString().trim()));
+        button("Voltar",()->home());
+    }
+    void showPriceResults(String term){
+        page("Preços registrados");
+        screen.addView(label("Busca: "+(term.isEmpty()?"Todos os produtos":term),15));
+        try(Cursor c=db.rawQuery("SELECT i.name,s.store,i.unit_cents,s.month,s.year FROM items i JOIN sessions s ON s.id=i.session_id WHERE i.name LIKE ? COLLATE NOCASE ORDER BY s.created DESC,i.id DESC LIMIT 100",new String[]{"%"+term+"%"})){
+            if(c.getCount()==0)screen.addView(label("Nenhum preço encontrado.",16));
+            while(c.moveToNext()){
+                String store=c.getString(1);if(store==null||store.trim().isEmpty())store="Loja não informada";
+                screen.addView(label(c.getString(0)+"  •  "+money(c.getLong(2))+" / un.\n"+store+"  •  "+c.getInt(3)+"/"+c.getInt(4),16));
+            }
+        }
+        button("Nova pesquisa",()->priceHistory());button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
