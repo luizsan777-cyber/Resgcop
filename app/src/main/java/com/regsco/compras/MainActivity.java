@@ -26,7 +26,7 @@ public class MainActivity extends Activity {
     int bg(){return theme==0?0xfffff8e8:theme==1?0xffffedf5:0xff1c1127;}
     int fg(){return theme==2?Color.WHITE:theme==1?0xff59274c:0xff1e5037;}
     String money(long cents){return NumberFormat.getCurrencyInstance(new Locale("pt","BR")).format(cents/100.0);}
-    long parse(String value){try {String v=value.trim().replace("R$","").replace(" ",""); if(v.contains(","))v=v.replace(".","").replace(",",".");return Math.round(Double.parseDouble(v)*100);}catch(Exception e){return -1;}}
+    long parse(String value){try {String v=value.trim().replace("R$","").replace(" ",""); if(v.contains(","))v=v.replace(".","").replace(",",".");java.math.BigDecimal amount=new java.math.BigDecimal(v);if(amount.signum()<0)return -1;return amount.movePointRight(2).setScale(0,java.math.RoundingMode.HALF_UP).longValueExact();}catch(Exception e){return -1;}}
     @Override public void onCreate(Bundle state){super.onCreate(state);
         db=openOrCreateDatabase("regsco.db",MODE_PRIVATE,null);
         db.execSQL("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT)");
@@ -111,6 +111,7 @@ public class MainActivity extends Activity {
         button("▥  Relatórios por categoria",()->categoryReport());
         button("▤  Gastos dos últimos 6 meses",()->sixMonthReport());
         button("Resumo por loja",()->storeSummary());
+        button("Pesquisar produtos na lista",()->searchList());
         button("▥  Comparar meses",()->compareMonths());
         button("⌕  Histórico de preços",()->priceHistory());
         button("▦  Comparar preços registrados",()->comparePrices());
@@ -597,6 +598,25 @@ public class MainActivity extends Activity {
             .setMessage("Retornar "+count+" itens concluídos para a lista pendente?")
             .setNegativeButton("Cancelar",null)
             .setPositiveButton("Reativar",(d,w)->{db.execSQL("UPDATE shopping_list SET checked=0 WHERE checked=1");shoppingList();}).show();
+    }
+    void searchList(){
+        page("Pesquisar na lista");
+        EditText query=field("Digite o produto","",false);
+        button("Buscar",()->searchListResults(query.getText().toString().trim()));
+        button("Voltar",()->shoppingList());
+    }
+    void searchListResults(String term){
+        page("Resultados da lista");
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity,checked FROM shopping_list WHERE name LIKE ? ORDER BY checked,id DESC LIMIT 200",new String[]{"%"+term+"%"})){
+            if(c.getCount()==0)screen.addView(label("Nenhum produto encontrado.",16));
+            while(c.moveToNext()){
+                long id=c.getLong(0);String name=c.getString(1);int qty=c.getInt(2),checked=c.getInt(3);
+                button((checked==1?"✓ ":"○ ")+name+" × "+qty,()->{db.execSQL("UPDATE shopping_list SET checked=? WHERE id=?",new Object[]{checked==1?0:1,id});searchListResults(term);});
+                button("Editar "+name,()->editListItem(id,name,qty));
+            }
+        }
+        button("Nova pesquisa",()->searchList());
+        button("Voltar",()->shoppingList());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
