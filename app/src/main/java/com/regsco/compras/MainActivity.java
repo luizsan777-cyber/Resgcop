@@ -221,7 +221,7 @@ public class MainActivity extends Activity {
             if(request==EXPORT_CSV){
                 try(OutputStream out=getContentResolver().openOutputStream(data.getData())){
                     if(out==null)throw new IOException("Não foi possível abrir o arquivo");
-                    out.write(("\\uFEFF"+reportCsv()).getBytes("UTF-8"));
+                    out.write(("\uFEFF"+reportCsv()).getBytes("UTF-8"));
                 }
                 message("Relatório CSV exportado");
             }else if(request==EXPORT_BACKUP){
@@ -234,8 +234,8 @@ public class MainActivity extends Activity {
                 ByteArrayOutputStream buffer=new ByteArrayOutputStream();
                 try(InputStream in=getContentResolver().openInputStream(data.getData())){
                     if(in==null)throw new IOException("Não foi possível ler o arquivo");
-                    byte[] bytes=new byte[8192];int n;int total=0;
-                    while((n=in.read(bytes))!=-1){total+=n;if(total>20*1024*1024)throw new IOException("Backup maior que 20 MB");buffer.write(bytes,0,n);}
+                    byte[] bytes=new byte[8192];int n;
+                    while((n=in.read(bytes))!=-1){buffer.write(bytes,0,n);}
                 }
                 restoreData(new JSONObject(buffer.toString("UTF-8")));
                 message("Backup restaurado");home();
