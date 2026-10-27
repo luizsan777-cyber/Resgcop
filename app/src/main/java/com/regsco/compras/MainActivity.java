@@ -35,6 +35,7 @@ public class MainActivity extends Activity {
         db.execSQL("CREATE TABLE IF NOT EXISTS budgets(month INTEGER NOT NULL,year INTEGER NOT NULL,cents INTEGER NOT NULL,PRIMARY KEY(month,year))");
         db.execSQL("CREATE TABLE IF NOT EXISTS shopping_list(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1,checked INTEGER NOT NULL DEFAULT 0)");
         db.execSQL("CREATE TABLE IF NOT EXISTS pantry(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS basket(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,quantity INTEGER NOT NULL DEFAULT 1)");
         try(Cursor c=db.rawQuery("SELECT value FROM settings WHERE key='theme'",null)){if(c.moveToFirst())theme=Integer.parseInt(c.getString(0));}
         home();
     }
@@ -97,6 +98,7 @@ public class MainActivity extends Activity {
         button("◉  Ajustar orçamento mensal",()->editBudget());
         button("▦  Escolher mês de referência",()->choosePeriod());
         section("Mais opções");
+        button("▤  Cesta básica recorrente",()->basketPage());
         button("▥  Relatórios por categoria",()->categoryReport());
         button("⌕  Histórico de preços",()->priceHistory());
         button("↗  Compartilhar relatório",()->share());
@@ -138,7 +140,7 @@ public class MainActivity extends Activity {
         button("Voltar",()->home());
     }
     static final int EXPORT_BACKUP=701, IMPORT_BACKUP=702;
-    final String[] backupTables={"settings","sessions","items","budgets","shopping_list","pantry"};
+    final String[] backupTables={"settings","sessions","items","budgets","shopping_list","pantry","basket"};
     void backupPage(){
         page("Backup e restauração");
         screen.addView(label("Salve seus registros em um arquivo JSON no armazenamento do celular. A restauração substitui os registros atuais.",15));
@@ -156,7 +158,7 @@ public class MainActivity extends Activity {
         button("Voltar",()->home());
     }
     JSONObject exportData() throws Exception{
-        JSONObject root=new JSONObject();root.put("format","regsco-backup");root.put("version",1);
+        JSONObject root=new JSONObject();root.put("format","regsco-backup");root.put("version",2);
         for(String table:backupTables){
             JSONArray rows=new JSONArray();
             try(Cursor c=db.rawQuery("SELECT * FROM "+table,null)){
@@ -175,7 +177,7 @@ public class MainActivity extends Activity {
         return root;
     }
     void restoreData(JSONObject root) throws Exception{
-        if(!"regsco-backup".equals(root.optString("format"))||root.optInt("version")!=1)throw new Exception("Formato de backup incompatível");
+        if(!"regsco-backup".equals(root.optString("format"))||root.optInt("version")!=2)throw new Exception("Formato de backup incompatível");
         for(String table:backupTables)if(root.optJSONArray(table)==null)throw new Exception("Backup incompleto: "+table);
         db.beginTransaction();
         try{
@@ -263,6 +265,33 @@ public class MainActivity extends Activity {
             }
         }
         button("Nova pesquisa",()->priceHistory());button("Voltar",()->home());
+    }
+    void basketPage(){
+        page("Cesta básica recorrente");
+        screen.addView(label("Monte uma cesta padrão e envie seus produtos à lista de compras quando precisar repor.",14));
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity FROM basket ORDER BY name",null)){
+            if(c.getCount()==0)screen.addView(label("Sua cesta ainda está vazia.",15));
+            while(c.moveToNext()){
+                long id=c.getLong(0);String name=c.getString(1);int qty=c.getInt(2);
+                screen.addView(label(name+"  × "+qty,16));
+                button("Excluir "+name,()->{db.execSQL("DELETE FROM basket WHERE id=?",new Object[]{id});basketPage();});
+            }
+        }
+        section("Adicionar produto recorrente");
+        EditText name=field("Produto","",false),quantity=field("Quantidade","1",true);
+        button("Salvar na cesta",()->{String n=name.getText().toString().trim();int q=positive(quantity.getText().toString());if(n.isEmpty()||q<1){message("Informe produto e quantidade");return;}db.execSQL("INSERT INTO basket(name,quantity) VALUES(?,?)",new Object[]{n,q});basketPage();});
+        button("Adicionar cesta à lista de compras",()->{
+            db.beginTransaction();int count=0;
+            try(Cursor c=db.rawQuery("SELECT name,quantity FROM basket",null)){
+                while(c.moveToNext()){
+                    db.execSQL("INSERT INTO shopping_list(name,quantity,checked) VALUES(?,?,0)",new Object[]{c.getString(0),c.getInt(1)});
+                    count++;
+                }
+                db.setTransactionSuccessful();
+            }finally{db.endTransaction();}
+            message(count+" produto(s) enviados à lista");shoppingList();
+        });
+        button("Voltar",()->home());
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
