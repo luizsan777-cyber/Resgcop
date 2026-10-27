@@ -134,6 +134,7 @@ public class MainActivity extends Activity {
                 button("Excluir "+name,()->new AlertDialog.Builder(this).setMessage("Excluir do estoque?").setPositiveButton("Excluir",(d,w)->{db.execSQL("DELETE FROM pantry WHERE id=?",new Object[]{id});pantry();}).setNegativeButton("Cancelar",null).show());
             }
         }
+        button("Repor estoque usando lista de compras",()->restockFromList());
         section("Cadastrar no estoque");
         EditText name=field("Produto","",false),quantity=field("Quantidade","1",true);
         button("Salvar produto",()->{String n=name.getText().toString().trim();int q=positive(quantity.getText().toString());if(n.isEmpty()||q==0){message("Informe produto e quantidade");return;}db.execSQL("INSERT INTO pantry(name,quantity) VALUES(?,?)",new Object[]{n,q});pantry();});
@@ -177,13 +178,13 @@ public class MainActivity extends Activity {
         return root;
     }
     void restoreData(JSONObject root) throws Exception{
-        if(!"regsco-backup".equals(root.optString("format"))||root.optInt("version")!=2)throw new Exception("Formato de backup incompatível");
-        for(String table:backupTables)if(root.optJSONArray(table)==null)throw new Exception("Backup incompleto: "+table);
+        if(!"regsco-backup".equals(root.optString("format"))||(root.optInt("version")!=1&&root.optInt("version")!=2))throw new Exception("Formato de backup incompatível");
+        for(String table:backupTables)if(root.optJSONArray(table)==null&&!(root.optInt("version")==1&&table.equals("basket")))throw new Exception("Backup incompleto: "+table);
         db.beginTransaction();
         try{
             for(int t=backupTables.length-1;t>=0;t--)db.delete(backupTables[t],null,null);
             for(String table:backupTables){
-                JSONArray rows=root.getJSONArray(table);
+                JSONArray rows=root.optJSONArray(table);if(rows==null)continue;
                 for(int i=0;i<rows.length();i++){
                     JSONObject row=rows.getJSONObject(i);
                     android.content.ContentValues values=new android.content.ContentValues();
@@ -266,6 +267,29 @@ public class MainActivity extends Activity {
         }
         button("Nova pesquisa",()->priceHistory());button("Voltar",()->home());
     }
+    void restockFromList(){
+        page("Repor estoque pela lista");
+        screen.addView(label("Selecione produtos comprados para atualizar o estoque. Os itens serão marcados como concluídos na lista.",14));
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity FROM shopping_list WHERE checked=0 ORDER BY id DESC",null)){
+            if(c.getCount()==0)screen.addView(label("Não há itens pendentes na lista.",15));
+            while(c.moveToNext()){
+                long id=c.getLong(0);String name=c.getString(1);int qty=c.getInt(2);
+                button("Repor "+name+"  × "+qty,()->{
+                    db.beginTransaction();
+                    try{
+                        try(Cursor p=db.rawQuery("SELECT id FROM pantry WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) LIMIT 1",new String[]{name})){
+                            if(p.moveToFirst())db.execSQL("UPDATE pantry SET quantity=quantity+? WHERE id=?",new Object[]{qty,p.getLong(0)});
+                            else db.execSQL("INSERT INTO pantry(name,quantity) VALUES(?,?)",new Object[]{name,qty});
+                        }
+                        db.execSQL("UPDATE shopping_list SET checked=1 WHERE id=?",new Object[]{id});
+                        db.setTransactionSuccessful();
+                    }finally{db.endTransaction();}
+                    restockFromList();
+                });
+            }
+        }
+        button("Voltar ao estoque",()->pantry());
+    }
     void basketPage(){
         page("Cesta básica recorrente");
         screen.addView(label("Monte uma cesta padrão e envie seus produtos à lista de compras quando precisar repor.",14));
@@ -284,7 +308,10 @@ public class MainActivity extends Activity {
             db.beginTransaction();int count=0;
             try(Cursor c=db.rawQuery("SELECT name,quantity FROM basket",null)){
                 while(c.moveToNext()){
-                    db.execSQL("INSERT INTO shopping_list(name,quantity,checked) VALUES(?,?,0)",new Object[]{c.getString(0),c.getInt(1)});
+                    try(Cursor existing=db.rawQuery("SELECT id,quantity FROM shopping_list WHERE LOWER(TRIM(name))=LOWER(TRIM(?)) AND checked=0 LIMIT 1",new String[]{c.getString(0)})){
+                        if(existing.moveToFirst())db.execSQL("UPDATE shopping_list SET quantity=? WHERE id=?",new Object[]{Math.max(existing.getInt(1),c.getInt(1)),existing.getLong(0)});
+                        else db.execSQL("INSERT INTO shopping_list(name,quantity,checked) VALUES(?,?,0)",new Object[]{c.getString(0),c.getInt(1)});
+                    }
                     count++;
                 }
                 db.setTransactionSuccessful();
