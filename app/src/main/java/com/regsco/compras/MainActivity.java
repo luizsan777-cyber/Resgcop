@@ -226,8 +226,9 @@ public class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
-        if(result!=RESULT_OK||data==null||data.getData()==null)return;
+        if(result!=RESULT_OK)return;
         if(request==CAMERA_SCAN){handleCameraResult(data);return;}
+        if(data==null||data.getData()==null)return;
         try{
             if(request==EXPORT_CSV){
                 try(OutputStream out=getContentResolver().openOutputStream(data.getData())){
