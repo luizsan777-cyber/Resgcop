@@ -27,7 +27,7 @@ Aplicativo Android local de compras domésticas (`com.regsco.compras`). Esta evo
 - A farmácia não tem cadastro independente com orçamento próprio; é uma área das compras domésticas categorizadas.
 - Algumas listas secundárias ainda não são paginadas. Relatórios CSV e compartilhamento de listas montam o texto em memória.
 - A entrada de estoque é feita para todos os itens da compra após confirmação. Alterar ou reabrir a compra não desfaz movimentos físicos já confirmados; ajustar estoque manualmente.
-- Tema da câmera é escuro e fixo; revisão visual e animações completas ainda pendentes.
+- A câmera acompanha a paleta escolhida. Os três temas usam fundos nativos com folhas/estrelas, cartões, indicador circular e navegação inferior; não são uma reprodução pixel a pixel das imagens de referência. Revisão visual em aparelho físico e animações completas ainda pendentes.
 - Formulários não salvos podem ser perdidos se o Android encerrar o processo enquanto a câmera está aberta.
 - Validação em Redmi 13 físico, OCR em etiquetas reais, foco/flash e fluxo de compartilhamento ainda necessários.
 - APK de desenvolvimento usa chave debug. Uma instalação anterior assinada com outra chave não poderá ser atualizada diretamente. **Não desinstalar sem exportar e guardar um backup.**
@@ -59,3 +59,7 @@ O workflow `.github/workflows/android.yml` compila, testa e executa lint em `mai
 - https://play.google.com/store/apps/details?id=br.com.carvalhosupershop.appvendas — aplicativo oficial localizado; não fornece nesta pesquisa contrato de API pública para o RegsCo.
 
 Pesquisa em 27/10/2026. Nenhuma afirmação de inexistência universal de APIs: apenas não foi confirmada uma integração pública adequada nesta implementação.
+
+## Referências visuais aplicadas em 0.3.0
+
+Verde Natureza (bege e folhagens), Roxo Nebulosa (roxo profundo com estrelas e rosa) e Rosa Claro (rosa/lavanda). Recursos decorativos são desenhados nativamente em `ThemeSkin`, sem rede. Todos os valores e produtos exibidos vêm do banco local, não dos exemplos das imagens.
