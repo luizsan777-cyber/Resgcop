@@ -8,6 +8,10 @@ final class DatabaseRules {
         db.beginTransaction();
         try {
             for(String column:new String[]{"barcode TEXT NOT NULL DEFAULT ''","brand TEXT NOT NULL DEFAULT ''","unit TEXT NOT NULL DEFAULT 'un'","store TEXT NOT NULL DEFAULT ''","notes TEXT NOT NULL DEFAULT ''","retail_cents INTEGER NOT NULL DEFAULT 0","wholesale_cents INTEGER NOT NULL DEFAULT 0","wholesale_min INTEGER NOT NULL DEFAULT 0","discount_cents INTEGER NOT NULL DEFAULT 0"}) addColumn(db,"items",column);
+            addColumn(db,"pantry","image_data TEXT NOT NULL DEFAULT ''");
+            addColumn(db,"sessions","receipt_hash TEXT NOT NULL DEFAULT ''");
+            addColumn(db,"sessions","receipt_text TEXT NOT NULL DEFAULT ''");
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS receipt_unique ON sessions(receipt_hash) WHERE receipt_hash<>''");
             addColumn(db,"sessions","planned INTEGER NOT NULL DEFAULT 0");
             addColumn(db,"sessions","stock_added INTEGER NOT NULL DEFAULT 0");
             for(String table:new String[]{"pantry","basket","shopping_list"}){

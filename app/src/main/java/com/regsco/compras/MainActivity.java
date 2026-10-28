@@ -19,7 +19,8 @@ import org.json.*;
 
 public class MainActivity extends Activity {
     SQLiteDatabase db;
-    static final int CAMERA_SCAN=704;
+    static final int CAMERA_SCAN=704,PHOTO_PICK=706,PHOTO_CAPTURE=707;
+    String scanMode="",photoDraft="",draftType="";long draftId,draftSession;ArrayList<EditText> draftFields=new ArrayList<>();LinearLayout photoSlot;ReceiptReview receiptReview;
     EditText scanNameTarget,scanPriceTarget;
     android.net.Uri scanPhotoUri;
     LinearLayout screen;
@@ -43,6 +44,16 @@ public class MainActivity extends Activity {
         try(Cursor c=db.rawQuery("SELECT value FROM settings WHERE key='theme'",null)){if(c.moveToFirst())theme=Integer.parseInt(c.getString(0));}
         DatabaseRules.upgrade(db);
         home();
+        if(state!=null){String type=state.getString("draftType","");
+            if(type.equals("pantry"))pantryForm(state.getLong("draftId"));else if(type.equals("item"))itemForm(state.getLong("draftSession"),state.getLong("draftId"));
+            else if(type.equals("receipt")){try{receiptReview=new ReceiptReview(this,state.getString("receiptRaw",""));receiptReview.rows.clear();JSONArray rows=new JSONArray(state.getString("receiptRows","[]"));for(int i=0;i<rows.length();i++){JSONObject r=rows.getJSONObject(i);ReceiptParser.Row row=new ReceiptParser.Row(r.getString("name"),r.getString("quantity"),r.getString("unit"),r.getString("price"));row.discount=r.getString("discount");receiptReview.rows.add(row);}receiptReview.shopValue=state.getString("receiptShop","");receiptReview.dateValue=state.getString("receiptDate",java.time.LocalDate.now().toString());receiptReview.totalValue=state.getString("receiptTotal","");receiptReview.show();}catch(Exception e){message("Reabra a foto da nota para revisar.");}}
+            if(type.equals("pantry")||type.equals("item")){ArrayList<String> values=state.getStringArrayList("draftValues");if(values!=null)for(int i=0;i<Math.min(values.size(),draftFields.size());i++)draftFields.get(i).setText(values.get(i));photoDraft=state.getString("photoDraft","");if(type.equals("pantry"))showDraftPhoto(scanNameTarget.getText().toString());}
+            scanMode=state.getString("scanMode","");
+        }
+    }
+    @Override protected void onSaveInstanceState(Bundle state){super.onSaveInstanceState(state);state.putString("scanMode",scanMode);state.putString("draftType",draftType);state.putLong("draftId",draftId);state.putLong("draftSession",draftSession);
+        if(draftType.equals("receipt")&&receiptReview!=null){receiptReview.sync();state.putString("receiptRaw",receiptReview.raw);state.putString("receiptShop",receiptReview.shopValue);state.putString("receiptDate",receiptReview.dateValue);state.putString("receiptTotal",receiptReview.totalValue);JSONArray rows=new JSONArray();try{for(var row:receiptReview.rows)rows.put(new JSONObject().put("name",row.name).put("quantity",row.quantity).put("unit",row.unit).put("price",row.price).put("discount",row.discount));}catch(Exception ignored){}state.putString("receiptRows",rows.toString());}
+        else if(!draftType.isEmpty()){ArrayList<String> values=new ArrayList<>();for(EditText field:draftFields)values.add(field.getText().toString());state.putStringArrayList("draftValues",values);state.putString("photoDraft",photoDraft);}
     }
     int accent(){return ThemeSkin.accent(theme);}
     int panel(){return ThemeSkin.surface(theme);}
@@ -66,6 +77,7 @@ public class MainActivity extends Activity {
         TextView sub=label(detail,13);sub.setTextColor(muted());wrap.addView(sub);screen.addView(wrap);
     }
     void page(String title){
+        draftType="";draftFields.clear();
         atHome=false;boolean home=title.equals("Suas compras");
         getWindow().setStatusBarColor(bg());getWindow().setNavigationBarColor(bg());
         getWindow().getDecorView().setSystemUiVisibility(theme==2?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
@@ -100,7 +112,7 @@ public class MainActivity extends Activity {
         e.setPadding(dp(18),dp(14),dp(18),dp(14));e.setBackground(ThemeSkin.card(theme,dp(14)));e.setMinHeight(dp(52));
         e.setContentDescription(hint);
         if(numeric)e.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        margin(e,7,7);screen.addView(e);return e;
+        margin(e,7,7);screen.addView(e);draftFields.add(e);return e;
     }
     void message(String text){Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
     long scalar(String sql,String[] args){try(Cursor c=db.rawQuery(sql,args)){return c.moveToFirst()?c.getLong(0):0;}}
@@ -125,7 +137,7 @@ public class MainActivity extends Activity {
         long completed=scalar("SELECT COUNT(*) FROM sessions WHERE finished=1 AND month=? AND year=?",args);screen.addView(label(completed+" compras finalizadas • "+scalar("SELECT COUNT(*) FROM shopping_list WHERE checked=0",null)+" itens pendentes na lista",13));
         button("Lista de compras",()->shoppingList());button("Cesta básica recorrente",()->basketPage());button("Produtos para repor",()->lowStock());button("Comparar preços registrados",()->comparePrices());button("Relatórios",()->reportsPage());
     }
-    void settingsPage(){page("Configurações");button("Orçamento mensal",()->editBudget());button("Mês e ano de referência",()->choosePeriod());button("Tema e aparência",()->themePage());button("Gerenciar lojas",()->storesPage());button("Backup e restauração",()->backupPage());button("Voltar",()->home());}
+    void settingsPage(){page("Configurações");button("Orçamento mensal",()->editBudget());button("Importar nota fiscal",()->scanReceipt());button("Créditos das imagens",()->imageCredits());button("Mês e ano de referência",()->choosePeriod());button("Tema e aparência",()->themePage());button("Gerenciar lojas",()->storesPage());button("Backup e restauração",()->backupPage());button("Voltar",()->home());}
     void reportsPage(){page("Relatórios");button("Gastos por categoria e loja",()->categoryReport());button("Últimos seis meses",()->sixMonthReport());button("Comparar meses",()->compareMonths());button("Produtos mais comprados",()->topProducts());button("Histórico de preços",()->priceHistory());button("Compartilhar resumo",()->share());button("Exportar CSV para Excel",()->exportCsv());button("Exportar PDF",()->exportPdf());button("Voltar",()->home());}
     void shoppingList(){listResults("","",-1);}
     void listResults(String term,String category,int status){
@@ -142,37 +154,46 @@ public class MainActivity extends Activity {
     void planningForm(String table,long id){
         String n="",q="1",u="un",cat="";if(id!=0)try(Cursor c=db.rawQuery("SELECT name,quantity,unit,category FROM "+table+" WHERE id=?",new String[]{""+id})){if(!c.moveToFirst())return;n=c.getString(0);q=c.getString(1);u=c.getString(2);cat=c.getString(3);}
         page("Produto do planejamento");EditText name=field("Produto",n,false),qty=field("Quantidade inteira",q,true),unit=field("Unidade (un, pacote, kg, g, L, mL)",u,false),category=field("Categoria",cat,false);button("Escolher categoria",()->chooseCategory(category));
+        EditText currentPrice=field("Preço encontrado agora (opcional, só para comparar)","",true);watchHistory(name,null,unit,null,currentPrice,-1);
         Runnable back=()->{if(table.equals("basket"))basketPage();else shoppingList();};
         button("Salvar",()->{int amount=positive(qty.getText().toString());String text=name.getText().toString().trim(),un=unit.getText().toString().trim();if(text.isEmpty()||un.isEmpty()||amount<1){message("Confira produto, unidade e quantidade");return;}android.content.ContentValues v=new android.content.ContentValues();v.put("name",text);v.put("quantity",amount);v.put("unit",un);v.put("category",category.getText().toString().trim());if(id==0)db.insertOrThrow(table,null,v);else db.update(table,v,"id=?",new String[]{""+id});back.run();});
         if(id!=0)button("Excluir",()->confirmDelete("Excluir este produto?",()->{db.delete(table,"id=?",new String[]{""+id});back.run();}));button("Cancelar",back);
     }
     int positive(String value){try{int n=Integer.parseInt(value.trim());return n>0?n:0;}catch(Exception e){return 0;}}
     void pantry(){pantryResults("",false);}
-    void pantryResults(String term,boolean low){
-        page("Estoque da casa");
-        EditText query=field("Pesquisar produto",term,false);
-        button("Pesquisar",()->pantryResults(query.getText().toString().trim(),low));
-        button(low?"Ver todos":"Somente estoque baixo",()->pantryResults(term,!low));
-        button("Cadastrar produto",()->pantryForm(0));
-        String today=java.time.LocalDate.now().toString(),soon=java.time.LocalDate.now().plusDays(30).toString();
-        try(Cursor c=db.rawQuery("SELECT id,name,quantity,unit,minimum,expiry,category FROM pantry WHERE name LIKE ? "+(low?"AND quantity<minimum ":"")+"ORDER BY name COLLATE NOCASE",new String[]{"%"+term+"%"})){
-            if(c.getCount()==0)screen.addView(label("Nenhum produto encontrado.",15));
-            while(c.moveToNext()){
-                long id=c.getLong(0);String expiry=c.getString(5);String status=expiry.isEmpty()?"Sem validade informada":expiry.compareTo(today)<0?"VENCIDO • "+expiry:expiry.compareTo(soon)<=0?"Vence em breve • "+expiry:"Validade: "+expiry;
-                button(c.getString(1)+" • "+c.getLong(2)+" "+c.getString(3)+"\nMínimo: "+c.getLong(4)+" • "+status+"\n"+c.getString(6),()->pantryForm(id));
+    void pantryResults(String term,boolean low){pantryResults(term,low,0);}
+    void pantryResults(String term,boolean low,int offset){
+        page("Estoque da casa");screen.addView(label("O que ainda tem em casa",17));
+        primaryButton("＋ Adicionar ao estoque",()->pantryForm(0));
+        EditText query=field("Pesquisar produto",term,false);button("Pesquisar",()->pantryResults(query.getText().toString().trim(),low));
+        button(low?"Mostrar todos":"Filtrar estoque baixo",()->pantryResults(term,!low));
+        String today=java.time.LocalDate.now().toString(),soon=java.time.LocalDate.now().plusDays(30).toString();boolean more=false;
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity,unit,minimum,expiry,category,image_data FROM pantry WHERE name LIKE ? "+(low?"AND quantity<minimum ":"")+"ORDER BY name COLLATE NOCASE LIMIT 51 OFFSET "+offset,new String[]{"%"+term+"%"})){
+            if(c.getCount()==0)screen.addView(label("Seu estoque está vazio. Adicione o que você já tem; não precisa registrar uma compra.",15));int count=0;
+            while(c.moveToNext()){if(count++==50){more=true;break;}long id=c.getLong(0);String expiry=c.getString(5);String status=expiry.isEmpty()?"Sem validade informada":expiry.compareTo(today)<0?"VENCIDO • "+expiry:expiry.compareTo(soon)<=0?"Vence em breve • "+expiry:"Validade: "+expiry;
+                LinearLayout card=new LinearLayout(this);card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(ThemeSkin.card(theme,dp(20)));margin(card,7,7);
+                card.addView(ProductPhotos.view(this,c.getString(1),c.getString(7),dp(90)),new LinearLayout.LayoutParams(dp(90),dp(100)));
+                LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);TextView title=label(c.getString(1),18);title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);info.addView(title);info.addView(label(c.getLong(2)+" "+c.getString(3)+" disponíveis",16));info.addView(label("Mínimo: "+c.getLong(4)+" • "+status,12));if(c.getString(7).isEmpty())info.addView(label("Imagem ilustrativa",10));card.addView(info,new LinearLayout.LayoutParams(0,-2,1));card.setOnClickListener(v->pantryForm(id));card.setFocusable(true);screen.addView(card);
             }
         }
-        button("Voltar",()->home());
+        if(offset>0)button("Página anterior",()->pantryResults(term,low,Math.max(0,offset-50)));if(more)button("Mais produtos",()->pantryResults(term,low,offset+50));
     }
     void pantryForm(long id){
         String name="",q="0",unit="un",minimum="0",expiry="",category="",notes="";
         if(id!=0)try(Cursor c=db.rawQuery("SELECT name,quantity,unit,minimum,expiry,category,notes FROM pantry WHERE id=?",new String[]{""+id})){if(!c.moveToFirst())return;name=c.getString(0);q=c.getString(1);unit=c.getString(2);minimum=c.getString(3);expiry=c.getString(4);category=c.getString(5);notes=c.getString(6);}
-        page(id==0?"Cadastrar estoque":"Ajustar estoque");
+        page(id==0?"Cadastrar estoque":"Ajustar estoque");draftType="pantry";draftId=id;photoDraft="";
+        if(id!=0)try(Cursor c=db.rawQuery("SELECT image_data FROM pantry WHERE id=?",new String[]{""+id})){if(c.moveToFirst())photoDraft=c.getString(0);}
+        primaryButton("Ler nome pelo rótulo",()->{startScan(scanNameTarget,null);scanMode="pantry";});
         EditText n=field("Produto",name,false),quantity=field("Quantidade disponível (inteira)",q,true),u=field("Unidade (un, kg, g, L, mL)",unit,false),min=field("Quantidade mínima",minimum,true),exp=field("Validade AAAA-MM-DD (opcional)",expiry,false),cat=field("Categoria",category,false),obs=field("Observações",notes,false);
+        scanNameTarget=n;scanPriceTarget=null;scanUnitTarget=u;scanBarcodeTarget=null;scanBrandTarget=null;
+        photoSlot=new LinearLayout(this);screen.addView(photoSlot);showDraftPhoto(n.getText().toString());
+        button("Escolher foto da galeria",()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),PHOTO_PICK));
+        button("Fotografar produto",()->{try{startActivityForResult(new Intent(this,ScanActivity.class).putExtra("theme",theme).putExtra("photoOnly",true),PHOTO_CAPTURE);}catch(Exception e){message("Câmera indisponível. Use a galeria.");}});
+        button("Usar imagem automática",()->{photoDraft="";showDraftPhoto(n.getText().toString());});
         button("Salvar",()->{try{
             long qty=Long.parseLong(quantity.getText().toString()),mi=Long.parseLong(min.getText().toString());String nm=n.getText().toString().trim(),un=u.getText().toString().trim(),ex=exp.getText().toString().trim();
             if(qty<0||mi<0||nm.isEmpty()||un.isEmpty())throw new IllegalArgumentException();if(!ex.isEmpty())java.time.LocalDate.parse(ex);
-            android.content.ContentValues v=new android.content.ContentValues();v.put("name",nm);v.put("quantity",qty);v.put("unit",un);v.put("minimum",mi);v.put("expiry",ex);v.put("category",cat.getText().toString().trim());v.put("notes",obs.getText().toString().trim());
+            android.content.ContentValues v=new android.content.ContentValues();v.put("name",nm);v.put("quantity",qty);v.put("unit",un);v.put("minimum",mi);v.put("expiry",ex);v.put("category",cat.getText().toString().trim());v.put("notes",obs.getText().toString().trim());v.put("image_data",photoDraft);
             if(id==0)db.insertOrThrow("pantry",null,v);else db.update("pantry",v,"id=?",new String[]{""+id});pantry();
         }catch(Exception e){message("Confira nome, unidade, quantidades não negativas e validade AAAA-MM-DD");}});
         if(id!=0)button("Excluir produto",()->confirmDelete("Excluir este produto do estoque?",()->{db.delete("pantry","id=?",new String[]{""+id});pantry();}));
@@ -264,6 +285,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(request,result,data);
         if(result!=RESULT_OK){if(request==CAMERA_SCAN)discardScanPhoto();return;}
         if(request==CAMERA_SCAN){handleCameraResult(data);return;}
+        if(request==PHOTO_PICK||request==PHOTO_CAPTURE){if(!draftType.equals("pantry"))return;try{String chosen=request==PHOTO_PICK?ProductPhotos.read(this,data.getData()):data.getStringExtra("image_data");if(chosen==null||ProductPhotos.decode(chosen,128)==null)throw new IllegalArgumentException();photoDraft=chosen;showDraftPhoto(scanNameTarget.getText().toString());}catch(Exception e){message("Não foi possível abrir essa imagem. Escolha outra foto.");}return;}
         if(data==null||data.getData()==null)return;
         try{
             if(request==EXPORT_PDF){
@@ -396,6 +418,7 @@ public class MainActivity extends Activity {
     }
     void comparePrices(){
         page("Comparar preços registrados");
+        button("Consultar Mix Mateus online",()->openOnline(false,"",""));
         screen.addView(label("Compare preços unitários de produtos cadastrados em compras anteriores. Não são preços atuais das lojas.",14));
         EditText search=field("Nome do produto","",false);
         button("Comparar",()->showComparison(search.getText().toString().trim()));
@@ -643,7 +666,7 @@ public class MainActivity extends Activity {
         button("Voltar",()->home());
     }
     void startScan(EditText name,EditText price){
-        scanNameTarget=name;scanPriceTarget=price;
+        scanMode="";scanNameTarget=name;scanPriceTarget=price;
         if(name==null){scanBarcodeTarget=null;scanBrandTarget=null;scanUnitTarget=null;}
         startActivityForResult(new Intent(this,ScanActivity.class).putExtra("theme",theme),CAMERA_SCAN);
     }
@@ -656,6 +679,9 @@ public class MainActivity extends Activity {
         if(data==null)return;
         String detected=data.getStringExtra("text");if(detected==null)detected="";
         String barcode=data.getStringExtra("barcode");
+        if(scanMode.equals("receipt")){scanMode="";receiptReview=new ReceiptReview(this,detected);receiptReview.show();return;}
+        if(scanMode.equals("pantry")){scanMode="";ArrayList<String> names=LabelParser.names(detected);if(names.isEmpty()){message("Não consegui ler o nome. Digite e informe a quantidade.");return;}new AlertDialog.Builder(this).setTitle("Escolha o nome e confira a quantidade").setItems(names.toArray(new String[0]),(d,w)->scanNameTarget.setText(names.get(w))).setNegativeButton("Digitar manualmente",null).show();return;}
+        if(scanMode.equals("mix")){scanMode="";String name=scanNameTarget==null?"":scanNameTarget.getText().toString().trim();ArrayList<String> names=LabelParser.names(detected);if(name.isEmpty()&&!names.isEmpty()){name=names.get(0);if(scanNameTarget!=null)scanNameTarget.setText(name);}openOnline(false,name,barcode);return;}
         if(scanBarcodeTarget!=null&&barcode!=null&&!barcode.isEmpty()){scanBarcodeTarget.setText(barcode);if(scanNameTarget!=null&&scanBrandTarget!=null&&scanUnitTarget!=null)lookupBarcode(barcode,scanNameTarget,scanBrandTarget,scanUnitTarget);}
         final String result=detected+(barcode==null||barcode.isEmpty()?"":"\nCódigo: "+barcode);
         ArrayList<String> prices=LabelParser.prices(detected);
@@ -666,6 +692,16 @@ public class MainActivity extends Activity {
                 .setItems(prices.toArray(new String[0]),(dialog,which)->{if(scanPriceTarget!=null)scanPriceTarget.setText(prices.get(which));})
                 .setNegativeButton("Cancelar",null).show())
             .setNegativeButton("Cancelar",null).show();
+    }
+    void openOnline(boolean pharmacy,String query,String barcode){startActivity(new Intent(this,OnlinePricesActivity.class).putExtra("theme",theme).putExtra("pharmacy",pharmacy).putExtra("query",query).putExtra("barcode",barcode));}
+    void scanReceipt(){startScan(null,null);scanMode="receipt";}
+    void showDraftPhoto(String name){if(photoSlot==null)return;photoSlot.removeAllViews();photoSlot.addView(ProductPhotos.view(this,name,photoDraft,dp(120)),new LinearLayout.LayoutParams(dp(120),dp(120)));}
+    String readUtf8(java.io.InputStream in)throws Exception{java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream();byte[] b=new byte[4096];int n;while((n=in.read(b))!=-1)out.write(b,0,n);return out.toString("UTF-8");}
+    void imageCredits(){page("Créditos das imagens");try(java.io.InputStream in=getAssets().open("photo-credits.txt")){screen.addView(label(readUtf8(in),14));}catch(Exception e){screen.addView(label("Fotos escolhidas pelo usuário e imagens ilustrativas do estoque.",14));}}
+    void watchHistory(EditText name,EditText barcode,EditText unit,EditText brand,EditText price,long exclude){
+        TextView result=label("",14);screen.addView(result);Runnable update=()->result.setText(PriceHistory.describe(db,name.getText().toString(),barcode==null?"":barcode.getText().toString(),unit.getText().toString(),brand==null?"":brand.getText().toString(),Money.parse(price.getText().toString()),exclude));
+        android.text.TextWatcher watcher=new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){update.run();}public void afterTextChanged(android.text.Editable e){}};
+        for(EditText field:new EditText[]{name,barcode,unit,brand,price})if(field!=null)field.addTextChangedListener(watcher);update.run();
     }
     void choosePeriod(){page("Mês de referência");EditText m=field("Mês (1-12)",""+month,true),y=field("Ano",""+year,true);button("Aplicar",()->{try{int mm=Integer.parseInt(m.getText().toString()),yy=Integer.parseInt(y.getText().toString());if(mm<1||mm>12||yy<2000||yy>2200)throw new Exception();month=mm;year=yy;home();}catch(Exception e){message("Informe mês e ano válidos");}});button("Voltar",()->home());}
     void editBudget(){page("Orçamento de "+period());EditText e=field("Orçamento em R$",money(budget()).replace("R$","").trim(),true);button("Salvar",()->{long c=parse(e.getText().toString());if(c<0){message("Valor inválido");return;}db.execSQL("INSERT OR REPLACE INTO budgets(month,year,cents) VALUES(?,?,?)",new Object[]{month,year,c});home();});button("Voltar",()->home());}
@@ -679,6 +715,7 @@ public class MainActivity extends Activity {
     void sessions(){historyPage("","","","","",0);}
     void historyPage(String term,String store,String category,String mm,String yy,int offset){
         page("Histórico de compras");
+        button("Fotografar nota fiscal",()->scanReceipt());
         EditText query=field("Nome da compra ou produto",term,false),shop=field("Loja (vazio: todas)",store,false),cat=field("Categoria (vazio: todas)",category,false),m=field("Mês (vazio: todos)",mm,true),y=field("Ano (vazio: todos)",yy,true);
         button("Aplicar filtros",()->{String monthFilter=m.getText().toString().trim(),yearFilter=y.getText().toString().trim();if((!monthFilter.isEmpty()&&(positive(monthFilter)<1||positive(monthFilter)>12))||(!yearFilter.isEmpty()&&(positive(yearFilter)<2000||positive(yearFilter)>2200))){message("Mês ou ano inválido");return;}historyPage(query.getText().toString().trim(),shop.getText().toString().trim(),cat.getText().toString().trim(),monthFilter,yearFilter,0);});
         button("Compras abertas",()->activeSessions());
@@ -740,18 +777,21 @@ public class MainActivity extends Activity {
     String itemText(long id,String column,String fallback){if(id==0)return fallback;try(Cursor c=db.rawQuery("SELECT "+column+" FROM items WHERE id=?",new String[]{""+id})){return c.moveToFirst()?c.getString(0):fallback;}}
     String amountInput(long cents){return java.math.BigDecimal.valueOf(cents,2).toPlainString().replace('.',',');}
     void itemForm(long session,long id){
-        page(id==0?"Adicionar produto":"Editar produto");
+        page(id==0?"Adicionar produto":"Editar produto");draftType="item";draftId=id;draftSession=session;
         EditText name=field("Produto",itemText(id,"name",""),false),brand=field("Marca / apresentação / dosagem",itemText(id,"brand",""),false),barcode=field("Código de barras",itemText(id,"barcode",""),false);
         EditText category=field("Categoria",itemText(id,"category","Alimentação"),false);
         button("Escolher categoria",()->chooseCategory(category));
         EditText qty=field("Quantidade inteira na unidade escolhida",itemText(id,"quantity","1"),true),unit=field("Unidade (un, pacote, kg, g, L, mL)",itemText(id,"unit","un"),false);
         long retail=Long.parseLong(itemText(id,"retail_cents","0"));if(retail==0)retail=Long.parseLong(itemText(id,"unit_cents","0"));
         EditText price=field("Preço de varejo por unidade (R$)",id==0?"":amountInput(retail),true);
-        scanBarcodeTarget=barcode;scanBrandTarget=brand;scanUnitTarget=unit;
+        scanNameTarget=name;scanPriceTarget=price;scanBarcodeTarget=barcode;scanBrandTarget=brand;scanUnitTarget=unit;
         button("Fotografar etiqueta ou código",()->{scanBarcodeTarget=barcode;startScan(name,price);});
+        button("Fotografar e consultar Mix Mateus",()->{startScan(name,price);scanMode="mix";});
+        button("Consultar Mix pelo nome",()->openOnline(false,name.getText().toString(),barcode.getText().toString()));
         button("Buscar código no histórico local",()->lookupBarcode(barcode.getText().toString().trim(),name,brand,unit));
         EditText wholesale=field("Preço atacado (R$, opcional)",amountInput(Long.parseLong(itemText(id,"wholesale_cents","0"))),true),minimum=field("Quantidade mínima atacado (0 desativa)",itemText(id,"wholesale_min","0"),true);
         EditText discount=field("Desconto total deste item (R$)",amountInput(Long.parseLong(itemText(id,"discount_cents","0"))),true),store=field("Loja deste produto (vazio usa a compra)",itemText(id,"store",""),false),notes=field("Observações",itemText(id,"notes",""),false);
+        watchHistory(name,barcode,unit,brand,price,session);
         button("Escolher loja do produto",()->chooseStore(store));
         button("Conferir total e salvar",()->{
             String n=name.getText().toString().trim(),u=unit.getText().toString().trim();int q=positive(qty.getText().toString());long r=parse(price.getText().toString()),w=parse(wholesale.getText().toString()),d=parse(discount.getText().toString());int min;
@@ -787,6 +827,7 @@ public class MainActivity extends Activity {
     }
     void pharmacyPage(){
         page("Farmácia");
+        primaryButton("Promoções online",()->openOnline(true,"",""));
         screen.addView(label("Organize compras de medicamentos e produtos de farmácia. Informe apresentação e dosagem no cadastro; nenhuma substituição é recomendada pelo aplicativo.",14));
         String[] args={""+month,""+year};
         long total=scalar("SELECT COALESCE(SUM(i.quantity*i.unit_cents-i.discount_cents),0) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=? AND i.category='Farmácia'",args);

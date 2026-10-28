@@ -36,7 +36,7 @@ public class ScanActivity extends ComponentActivity {
         area=new FrameLayout(this);root.addView(area,new LinearLayout.LayoutParams(-1,0,1));
         preview=new PreviewView(this);area.addView(preview,new FrameLayout.LayoutParams(-1,-1));
         shoot=button("Fotografar",()->take());light=button("Lanterna",()->{if(camera!=null&&camera.getCameraInfo().hasFlashUnit()){torch=!torch;camera.getCameraControl().enableTorch(torch);}else toast("Esta câmera não possui flash");});
-        recognize=button("Reconhecer área selecionada",()->read());again=button("Fotografar novamente",()->reset());button("Cancelar",()->finish());
+        recognize=button(getIntent().getBooleanExtra("photoOnly",false)?"Usar esta foto":"Reconhecer área selecionada",()->read());again=button("Fotografar novamente",()->reset());button("Cancelar",()->finish());
         recognize.setVisibility(View.GONE);again.setVisibility(View.GONE);
         if(checkSelfPermission(Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED)start();else requestPermissions(new String[]{Manifest.permission.CAMERA},10);
     }
@@ -78,6 +78,7 @@ public class ScanActivity extends ComponentActivity {
     void read(){
         if(photo==null)return;working=true;hint.setText("Reconhecendo no aparelho…");
         Bitmap selected=crop.selected();InputImage image=InputImage.fromBitmap(selected,0);
+        if(getIntent().getBooleanExtra("photoOnly",false)){try{String encoded=ProductPhotos.encode(selected);setResult(RESULT_OK,new Intent().putExtra("image_data",encoded));finish();}catch(Exception e){toast("Não foi possível usar a foto");}finally{working=false;if(selected!=photo)selected.recycle();}return;}
         var text=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         var scanner=BarcodeScanning.getClient(new BarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_EAN_13,Barcode.FORMAT_EAN_8,Barcode.FORMAT_UPC_A,Barcode.FORMAT_UPC_E).build());
         var textTask=text.process(image);var codeTask=scanner.process(image);
