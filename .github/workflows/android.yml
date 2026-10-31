@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - main
+      - codex/**
   workflow_dispatch:
 
 permissions:
@@ -48,7 +49,7 @@ jobs:
           sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Compilar APK de teste
-        run: gradle --no-daemon --stacktrace --warning-mode all :app:assembleDebug
+        run: gradle --no-daemon --stacktrace --warning-mode all :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 
       - name: Enviar APK para download
         uses: actions/upload-artifact@v4
@@ -57,3 +58,14 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Enviar relatórios de validação
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RegsCo-validacao
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.html
+            app/build/theme-previews/
+          if-no-files-found: warn
