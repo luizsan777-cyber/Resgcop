@@ -77,7 +77,7 @@ public class MainActivity extends Activity {
         TextView sub=label(detail,13);sub.setTextColor(muted());wrap.addView(sub);screen.addView(wrap);
     }
     void page(String title){
-        draftType="";draftFields.clear();
+        draftType="";draftFields.clear();stockPage=0;
         atHome=false;boolean home=title.equals("Suas compras");
         getWindow().setStatusBarColor(bg());getWindow().setNavigationBarColor(bg());
         getWindow().getDecorView().setSystemUiVisibility(theme==2?0:View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR|View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
@@ -87,7 +87,7 @@ public class MainActivity extends Activity {
         screen=new LinearLayout(this);screen.setOrientation(LinearLayout.VERTICAL);screen.setPadding(dp(18),dp(10),dp(18),dp(20));
         scroll.addView(screen);shell.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
         LinearLayout heading=new LinearLayout(this);heading.setGravity(Gravity.CENTER_VERTICAL);
-        TextView symbol=label("",22);ThemeSkin.Icon icon=new ThemeSkin.Icon(home?7:8,accent());icon.setBounds(0,0,dp(30),dp(30));symbol.setCompoundDrawables(icon,null,null,null);symbol.setContentDescription(home?"RegsCo":"Voltar ao início");symbol.setOnClickListener(v->home());heading.addView(symbol);
+        TextView symbol=label("",22);ThemeSkin.Icon icon=new ThemeSkin.Icon(home?7:8,accent());icon.setBounds(0,0,dp(30),dp(30));symbol.setCompoundDrawables(icon,null,null,null);symbol.setContentDescription(home?"RegsCo":"Voltar ao início");symbol.setOnClickListener(v->onBackPressed());heading.addView(symbol);
         LinearLayout names=new LinearLayout(this);names.setOrientation(LinearLayout.VERTICAL);TextView h=label(home?"RegsCo":title,home?26:21);h.setTypeface(Typeface.create("sans-serif-medium",Typeface.NORMAL));h.setPadding(0,dp(8),0,dp(2));names.addView(h);
         if(home){TextView subtitle=label("Suas compras em um só lugar",12);subtitle.setTextColor(muted());subtitle.setPadding(0,0,0,dp(12));names.addView(subtitle);}heading.addView(names,new LinearLayout.LayoutParams(0,-2,1));screen.addView(heading);
         int selected=home?0:title.toLowerCase(new Locale("pt","BR")).contains("farmácia")?2:title.toLowerCase(new Locale("pt","BR")).contains("estoque")?3:title.toLowerCase(new Locale("pt","BR")).contains("compra")?1:4;
@@ -119,7 +119,7 @@ public class MainActivity extends Activity {
     String period(){return String.format(new Locale("pt","BR"),"%02d/%d",month,year);}
     long spent(){return scalar("SELECT COALESCE(SUM((i.quantity*i.unit_cents-i.discount_cents)),0) FROM items i JOIN sessions s ON s.id=i.session_id WHERE s.finished=1 AND s.month=? AND s.year=?",new String[]{""+month,""+year});}
     long budget(){return scalar("SELECT COALESCE(cents,0) FROM budgets WHERE month=? AND year=?",new String[]{""+month,""+year});}
-    boolean atHome=false;
+    boolean atHome=false; int stockPage=0;
     void home(){
         page("Suas compras");atHome=true;monthSelector();
         long budget=budget(),actual=spent();String[] args={""+month,""+year};
@@ -160,42 +160,63 @@ public class MainActivity extends Activity {
         if(id!=0)button("Excluir",()->confirmDelete("Excluir este produto?",()->{db.delete(table,"id=?",new String[]{""+id});back.run();}));button("Cancelar",back);
     }
     int positive(String value){try{int n=Integer.parseInt(value.trim());return n>0?n:0;}catch(Exception e){return 0;}}
-    void pantry(){pantryResults("",false);}
+    void pantry(){
+        page("Estoque");stockPage=1;
+        card("Em casa",scalar("SELECT COUNT(*) FROM pantry",null)+" produtos","Organize as embalagens fechadas e as que estão em uso.");
+        primaryButton("Ver produtos do estoque",()->pantryResults("",false));
+        button("Adicionar produto",()->pantryForm(0));
+        button("Cadastrar minha lista de casa",()->HouseholdStock.review(this));
+        button("Produtos para repor",()->pantryResults("",true));
+    }
     void pantryResults(String term,boolean low){pantryResults(term,low,0);}
     void pantryResults(String term,boolean low,int offset){
-        page("Estoque da casa");screen.addView(label("O que ainda tem em casa",17));
-        primaryButton("＋ Adicionar ao estoque",()->pantryForm(0));
-        EditText query=field("Pesquisar produto",term,false);button("Pesquisar",()->pantryResults(query.getText().toString().trim(),low));
-        button(low?"Mostrar todos":"Filtrar estoque baixo",()->pantryResults(term,!low));
+        page("Produtos do estoque");stockPage=2;
+        LinearLayout controls=new LinearLayout(this);controls.setGravity(Gravity.CENTER_VERTICAL);
+        EditText query=new EditText(this);query.setSingleLine(true);query.setText(term);query.setTextColor(fg());query.setHintTextColor(muted());query.setHint("Pesquisar no estoque");query.setTextSize(15);query.setPadding(dp(10),dp(8),dp(8),dp(8));query.setBackground(ThemeSkin.card(theme,dp(12)));query.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH);
+        controls.addView(query,new LinearLayout.LayoutParams(0,dp(48),1));TextView search=label("Buscar",14);search.setOnClickListener(v->pantryResults(query.getText().toString().trim(),low));controls.addView(search);screen.addView(controls);
+        query.setOnEditorActionListener((v,action,event)->{if(action==android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH){pantryResults(query.getText().toString().trim(),low);return true;}return false;});
+        LinearLayout actions=new LinearLayout(this);TextView add=label("＋ Adicionar",14),filter=label(low?"Todos":"Estoque baixo",14);add.setTextColor(accent());filter.setTextColor(accent());add.setOnClickListener(v->pantryForm(0));filter.setOnClickListener(v->pantryResults(term,!low));actions.addView(add,new LinearLayout.LayoutParams(0,-2,1));actions.addView(filter);screen.addView(actions);
+        TextView guidance=label("Toque no produto para ajustar quantidade, uso ou foto.",12);guidance.setPadding(dp(4),0,dp(4),dp(8));guidance.setTextColor(muted());screen.addView(guidance);
+        LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);list.setBackground(ThemeSkin.card(theme,dp(18)));list.setPadding(dp(10),dp(4),dp(10),dp(4));screen.addView(list);
         String today=java.time.LocalDate.now().toString(),soon=java.time.LocalDate.now().plusDays(30).toString();boolean more=false;
-        try(Cursor c=db.rawQuery("SELECT id,name,quantity,unit,minimum,expiry,category,image_data FROM pantry WHERE name LIKE ? "+(low?"AND quantity<minimum ":"")+"ORDER BY name COLLATE NOCASE LIMIT 51 OFFSET "+offset,new String[]{"%"+term+"%"})){
-            if(c.getCount()==0)screen.addView(label("Seu estoque está vazio. Adicione o que você já tem; não precisa registrar uma compra.",15));int count=0;
-            while(c.moveToNext()){if(count++==50){more=true;break;}long id=c.getLong(0);String expiry=c.getString(5);String status=expiry.isEmpty()?"Sem validade informada":expiry.compareTo(today)<0?"VENCIDO • "+expiry:expiry.compareTo(soon)<=0?"Vence em breve • "+expiry:"Validade: "+expiry;
-                LinearLayout card=new LinearLayout(this);card.setPadding(dp(12),dp(12),dp(12),dp(12));card.setBackground(ThemeSkin.card(theme,dp(20)));margin(card,7,7);
-                card.addView(ProductPhotos.view(this,c.getString(1),c.getString(7),dp(90)),new LinearLayout.LayoutParams(dp(90),dp(100)));
-                LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);TextView title=label(c.getString(1),18);title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);info.addView(title);info.addView(label(c.getLong(2)+" "+c.getString(3)+" disponíveis",16));info.addView(label("Mínimo: "+c.getLong(4)+" • "+status,12));if(c.getString(7).isEmpty())info.addView(label("Imagem ilustrativa",10));card.addView(info,new LinearLayout.LayoutParams(0,-2,1));card.setOnClickListener(v->pantryForm(id));card.setFocusable(true);screen.addView(card);
+        try(Cursor c=db.rawQuery("SELECT id,name,quantity,unit,minimum,expiry,category,image_data,in_use,notes FROM pantry WHERE name LIKE ? "+(low?"AND quantity<minimum ":"")+"ORDER BY name COLLATE NOCASE LIMIT 51 OFFSET "+offset,new String[]{"%"+term+"%"})){
+            if(c.getCount()==0)list.addView(label(term.isEmpty()&&!low?"Ainda não há produtos. Adicione o que você tem em casa.":"Nenhum produto neste filtro.",15));int count=0;
+            while(c.moveToNext()){if(count++==50){more=true;break;}long id=c.getLong(0);String expiry=c.getString(5);
+                LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(0,dp(10),0,dp(10));
+                row.addView(ProductPhotos.view(this,c.getString(1),c.getString(7),dp(64)),new LinearLayout.LayoutParams(dp(64),dp(76)));
+                LinearLayout info=new LinearLayout(this);info.setOrientation(LinearLayout.VERTICAL);info.setPadding(dp(12),0,dp(4),0);
+                TextView title=stockText(c.getString(1),16);title.setTypeface(Typeface.DEFAULT,Typeface.BOLD);info.addView(title);
+                info.addView(stockText(HouseholdStock.summary(c.getLong(2),c.getString(3),c.getLong(8),c.getString(9)),14));
+                if(c.getLong(2)<c.getLong(4)){TextView lowLabel=stockText("Repor • mínimo "+c.getLong(4),12);lowLabel.setTextColor(accent());info.addView(lowLabel);}
+                if(!expiry.isEmpty())info.addView(stockText((expiry.compareTo(today)<0?"Vencido • ":expiry.compareTo(soon)<=0?"Vence em breve • ":"Validade • ")+expiry,12));
+                row.addView(info,new LinearLayout.LayoutParams(0,-2,1));row.addView(stockText("›",22));row.setOnClickListener(v->pantryForm(id));row.setFocusable(true);list.addView(row);
+                View divider=new View(this);divider.setBackgroundColor(ThemeSkin.secondary(theme));divider.setAlpha(.18f);list.addView(divider,new LinearLayout.LayoutParams(-1,dp(1)));
             }
         }
         if(offset>0)button("Página anterior",()->pantryResults(term,low,Math.max(0,offset-50)));if(more)button("Mais produtos",()->pantryResults(term,low,offset+50));
+        TextView note=label("Fotos de embalagens são referências visuais. Use sua própria foto para identificar a marca exata.",11);note.setTextColor(muted());screen.addView(note);
     }
+    TextView stockText(String text,int size){TextView v=label(text,size);v.setPadding(0,dp(2),0,dp(2));return v;}
+
     void pantryForm(long id){
         String name="",q="0",unit="un",minimum="0",expiry="",category="",notes="";
         if(id!=0)try(Cursor c=db.rawQuery("SELECT name,quantity,unit,minimum,expiry,category,notes FROM pantry WHERE id=?",new String[]{""+id})){if(!c.moveToFirst())return;name=c.getString(0);q=c.getString(1);unit=c.getString(2);minimum=c.getString(3);expiry=c.getString(4);category=c.getString(5);notes=c.getString(6);}
-        page(id==0?"Cadastrar estoque":"Ajustar estoque");draftType="pantry";draftId=id;photoDraft="";
+        page(id==0?"Cadastrar estoque":"Ajustar estoque");stockPage=3;draftType="pantry";draftId=id;photoDraft="";
         if(id!=0)try(Cursor c=db.rawQuery("SELECT image_data FROM pantry WHERE id=?",new String[]{""+id})){if(c.moveToFirst())photoDraft=c.getString(0);}
         primaryButton("Ler nome pelo rótulo",()->{startScan(scanNameTarget,null);scanMode="pantry";});
-        EditText n=field("Produto",name,false),quantity=field("Quantidade disponível (inteira)",q,true),u=field("Unidade (un, kg, g, L, mL)",unit,false),min=field("Quantidade mínima",minimum,true),exp=field("Validade AAAA-MM-DD (opcional)",expiry,false),cat=field("Categoria",category,false),obs=field("Observações",notes,false);
+        EditText n=field("Produto",name,false),quantity=field("Quantidade total (inclui as embalagens em uso)",q,true),u=field("Unidade (saco, pacote, lata, garrafa, un, kg…)",unit,false),min=field("Quantidade mínima",minimum,true),exp=field("Validade AAAA-MM-DD (opcional)",expiry,false),cat=field("Categoria",category,false),obs=field("Observações",notes,false);
+        EditText opened=field("Em uso (dentro da quantidade total)",id==0?"0":""+scalar("SELECT in_use FROM pantry WHERE id=?",new String[]{""+id}),true);
         scanNameTarget=n;scanPriceTarget=null;scanUnitTarget=u;scanBarcodeTarget=null;scanBrandTarget=null;
         photoSlot=new LinearLayout(this);screen.addView(photoSlot);showDraftPhoto(n.getText().toString());
         button("Escolher foto da galeria",()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("image/*").addCategory(Intent.CATEGORY_OPENABLE),PHOTO_PICK));
         button("Fotografar produto",()->{try{startActivityForResult(new Intent(this,ScanActivity.class).putExtra("theme",theme).putExtra("photoOnly",true),PHOTO_CAPTURE);}catch(Exception e){message("Câmera indisponível. Use a galeria.");}});
         button("Usar imagem automática",()->{photoDraft="";showDraftPhoto(n.getText().toString());});
         button("Salvar",()->{try{
-            long qty=Long.parseLong(quantity.getText().toString()),mi=Long.parseLong(min.getText().toString());String nm=n.getText().toString().trim(),un=u.getText().toString().trim(),ex=exp.getText().toString().trim();
-            if(qty<0||mi<0||nm.isEmpty()||un.isEmpty())throw new IllegalArgumentException();if(!ex.isEmpty())java.time.LocalDate.parse(ex);
-            android.content.ContentValues v=new android.content.ContentValues();v.put("name",nm);v.put("quantity",qty);v.put("unit",un);v.put("minimum",mi);v.put("expiry",ex);v.put("category",cat.getText().toString().trim());v.put("notes",obs.getText().toString().trim());v.put("image_data",photoDraft);
-            if(id==0)db.insertOrThrow("pantry",null,v);else db.update("pantry",v,"id=?",new String[]{""+id});pantry();
-        }catch(Exception e){message("Confira nome, unidade, quantidades não negativas e validade AAAA-MM-DD");}});
+            long used=Long.parseLong(opened.getText().toString());long qty=Long.parseLong(quantity.getText().toString()),mi=Long.parseLong(min.getText().toString());String nm=n.getText().toString().trim(),un=u.getText().toString().trim(),ex=exp.getText().toString().trim();
+            if(used<0||used>qty||qty<0||mi<0||nm.isEmpty()||un.isEmpty())throw new IllegalArgumentException();if(!ex.isEmpty())java.time.LocalDate.parse(ex);
+            android.content.ContentValues v=new android.content.ContentValues();v.put("name",nm);v.put("quantity",qty);v.put("unit",un);v.put("minimum",mi);v.put("expiry",ex);v.put("category",cat.getText().toString().trim());v.put("notes",obs.getText().toString().trim());v.put("image_data",photoDraft);v.put("in_use",used);
+            if(id==0)db.insertOrThrow("pantry",null,v);else db.update("pantry",v,"id=?",new String[]{""+id});pantryResults("",false);
+        }catch(Exception e){message("Confira nome e quantidades. Em uso não pode superar o total. Validade: AAAA-MM-DD");}});
         if(id!=0)button("Excluir produto",()->confirmDelete("Excluir este produto do estoque?",()->{db.delete("pantry","id=?",new String[]{""+id});pantry();}));
         button("Cancelar",()->pantry());
     }
@@ -237,7 +258,7 @@ public class MainActivity extends Activity {
         button("Voltar",()->home());
     }
     JSONObject exportData() throws Exception{
-        JSONObject root=new JSONObject();root.put("format","regsco-backup");root.put("version",4);
+        JSONObject root=new JSONObject();root.put("format","regsco-backup");root.put("version",5);
         for(String table:backupTables){
             JSONArray rows=new JSONArray();
             try(Cursor c=db.rawQuery("SELECT * FROM "+table,null)){
@@ -256,7 +277,7 @@ public class MainActivity extends Activity {
         return root;
     }
     void restoreData(JSONObject root) throws Exception{
-        if(!"regsco-backup".equals(root.optString("format"))||(root.optInt("version")<1||root.optInt("version")>4))throw new Exception("Formato de backup incompatível");
+        if(!"regsco-backup".equals(root.optString("format"))||(root.optInt("version")<1||root.optInt("version")>5))throw new Exception("Formato de backup incompatível");
         for(String table:backupTables)if(root.optJSONArray(table)==null&&!(root.optInt("version")<2&&table.equals("basket"))&&!(root.optInt("version")<3&&table.equals("stores")))throw new Exception("Backup incompleto: "+table);
         db.beginTransaction();
         try{
@@ -681,7 +702,7 @@ public class MainActivity extends Activity {
         String barcode=data.getStringExtra("barcode");
         if(scanMode.equals("receipt")){scanMode="";receiptReview=new ReceiptReview(this,detected);receiptReview.show();return;}
         if(scanMode.equals("pantry")){scanMode="";ArrayList<String> names=LabelParser.names(detected);if(names.isEmpty()){message("Não consegui ler o nome. Digite e informe a quantidade.");return;}new AlertDialog.Builder(this).setTitle("Escolha o nome e confira a quantidade").setItems(names.toArray(new String[0]),(d,w)->scanNameTarget.setText(names.get(w))).setNegativeButton("Digitar manualmente",null).show();return;}
-        if(scanMode.equals("mix")){scanMode="";String name=scanNameTarget==null?"":scanNameTarget.getText().toString().trim();ArrayList<String> names=LabelParser.names(detected);if(name.isEmpty()&&!names.isEmpty()){name=names.get(0);if(scanNameTarget!=null)scanNameTarget.setText(name);}openOnline(false,name,barcode);return;}
+        if(scanMode.equals("mix")){scanMode="";reviewAlternatives(detected);return;}
         if(scanBarcodeTarget!=null&&barcode!=null&&!barcode.isEmpty()){scanBarcodeTarget.setText(barcode);if(scanNameTarget!=null&&scanBrandTarget!=null&&scanUnitTarget!=null)lookupBarcode(barcode,scanNameTarget,scanBrandTarget,scanUnitTarget);}
         final String result=detected+(barcode==null||barcode.isEmpty()?"":"\nCódigo: "+barcode);
         ArrayList<String> prices=LabelParser.prices(detected);
@@ -692,6 +713,14 @@ public class MainActivity extends Activity {
                 .setItems(prices.toArray(new String[0]),(dialog,which)->{if(scanPriceTarget!=null)scanPriceTarget.setText(prices.get(which));})
                 .setNegativeButton("Cancelar",null).show())
             .setNegativeButton("Cancelar",null).show();
+    }
+    void reviewAlternatives(String detected){
+        LinearLayout form=new LinearLayout(this);form.setOrientation(LinearLayout.VERTICAL);form.setPadding(dp(20),dp(12),dp(20),dp(12));
+        TextView help=new TextView(this);help.setText("Confira o tipo e o sabor. A busca considera outras marcas e não usa o código de barras. Exemplo: polpa acerola.");form.addView(help);
+        EditText name=new EditText(this);name.setHint("Nome do produto reconhecido");name.setText(ProductSearch.fromOcr(detected));name.setInputType(InputType.TYPE_CLASS_TEXT);form.addView(name);
+        if(!detected.isEmpty()){TextView raw=new TextView(this);raw.setText("Ver texto da foto");raw.setPadding(0,dp(12),0,dp(12));raw.setOnClickListener(v->new AlertDialog.Builder(this).setTitle("Texto reconhecido").setMessage(detected).setPositiveButton("Voltar",null).show());form.addView(raw);}
+        AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Outras opções do produto").setView(form).setPositiveButton("Outras opções",null).setNegativeButton("Cancelar",null).create();
+        dialog.setOnShowListener(d->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String text=name.getText().toString().trim();if(!ProductSearch.valid(text)){name.setError("Informe o nome, tipo e sabor do produto");return;}if(scanNameTarget!=null)scanNameTarget.setText(text);dialog.dismiss();openOnline(false,ProductSearch.alternatives(text),"");}));dialog.show();
     }
     void openOnline(boolean pharmacy,String query,String barcode){startActivity(new Intent(this,OnlinePricesActivity.class).putExtra("theme",theme).putExtra("pharmacy",pharmacy).putExtra("query",query).putExtra("barcode",barcode));}
     void scanReceipt(){startScan(null,null);scanMode="receipt";}
@@ -786,8 +815,8 @@ public class MainActivity extends Activity {
         EditText price=field("Preço de varejo por unidade (R$)",id==0?"":amountInput(retail),true);
         scanNameTarget=name;scanPriceTarget=price;scanBarcodeTarget=barcode;scanBrandTarget=brand;scanUnitTarget=unit;
         button("Fotografar etiqueta ou código",()->{scanBarcodeTarget=barcode;startScan(name,price);});
-        button("Fotografar e consultar Mix Mateus",()->{startScan(name,price);scanMode="mix";});
-        button("Consultar Mix pelo nome",()->openOnline(false,name.getText().toString(),barcode.getText().toString()));
+        button("Fotografar • outras opções no Mix",()->{scanNameTarget=name;scanPriceTarget=price;scanMode="mix";startActivityForResult(new Intent(this,ScanActivity.class).putExtra("theme",theme).putExtra("nameSearch",true),CAMERA_SCAN);});
+        button("Consultar Mix pelo nome",()->openOnline(false,ProductSearch.alternatives(name.getText().toString()),""));
         button("Buscar código no histórico local",()->lookupBarcode(barcode.getText().toString().trim(),name,brand,unit));
         EditText wholesale=field("Preço atacado (R$, opcional)",amountInput(Long.parseLong(itemText(id,"wholesale_cents","0"))),true),minimum=field("Quantidade mínima atacado (0 desativa)",itemText(id,"wholesale_min","0"),true);
         EditText discount=field("Desconto total deste item (R$)",amountInput(Long.parseLong(itemText(id,"discount_cents","0"))),true),store=field("Loja deste produto (vazio usa a compra)",itemText(id,"store",""),false),notes=field("Observações",itemText(id,"notes",""),false);
@@ -843,7 +872,7 @@ public class MainActivity extends Activity {
         button("Voltar",()->home());
     }
     void confirmDelete(String text,Runnable action){new AlertDialog.Builder(this).setMessage(text).setNegativeButton("Cancelar",null).setPositiveButton("Excluir",(d,w)->action.run()).show();}
-    @Override public void onBackPressed(){if(busy)return;if(atHome)super.onBackPressed();else home();}
+    @Override public void onBackPressed(){if(busy)return;if(stockPage==3)pantryResults("",false);else if(stockPage==2||stockPage==4)pantry();else if(atHome)super.onBackPressed();else home();}
     void editSessionDetails(long id){
         try(Cursor c=db.rawQuery("SELECT name,store,month,year FROM sessions WHERE id=?",new String[]{""+id})){
             if(!c.moveToFirst())return;

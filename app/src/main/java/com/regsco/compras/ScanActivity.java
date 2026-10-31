@@ -32,7 +32,7 @@ public class ScanActivity extends ComponentActivity {
         super.onCreate(state);theme=getIntent().getIntExtra("theme",0);
         root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackground(new ThemeSkin.Backdrop(theme));root.setPadding(16,16,16,16);
         root.setOnApplyWindowInsetsListener((v,i)->{v.setPadding(16,i.getSystemWindowInsetTop()+16,16,i.getSystemWindowInsetBottom()+16);return i;});setContentView(root);
-        hint=new TextView(this);hint.setTextColor(ThemeSkin.text(theme));hint.setTextSize(17);hint.setPadding(10,12,10,12);hint.setText("Enquadre a etiqueta. Toque para focar.");root.addView(hint);
+        hint=new TextView(this);hint.setTextColor(ThemeSkin.text(theme));hint.setTextSize(17);hint.setPadding(10,12,10,12);hint.setText(getIntent().getBooleanExtra("nameSearch",false)?"Enquadre o nome e o sabor na embalagem ou etiqueta. Toque para focar.":"Enquadre a etiqueta. Toque para focar.");root.addView(hint);
         area=new FrameLayout(this);root.addView(area,new LinearLayout.LayoutParams(-1,0,1));
         preview=new PreviewView(this);area.addView(preview,new FrameLayout.LayoutParams(-1,-1));
         shoot=button("Fotografar",()->take());light=button("Lanterna",()->{if(camera!=null&&camera.getCameraInfo().hasFlashUnit()){torch=!torch;camera.getCameraControl().enableTorch(torch);}else toast("Esta câmera não possui flash");});
@@ -86,11 +86,11 @@ public class ScanActivity extends ComponentActivity {
             text.close();scanner.close();if(selected!=photo)selected.recycle();working=false;if(isDestroyed())return;
             String detected=textTask.isSuccessful()?textTask.getResult().getText():"";
             String barcode="";if(codeTask.isSuccessful()&&!codeTask.getResult().isEmpty()){String raw=codeTask.getResult().get(0).getRawValue();if(raw!=null)barcode=raw;}
-            if(detected.isEmpty()&&barcode.isEmpty()){hint.setText("Não foi possível reconhecer. Ajuste o recorte ou fotografe novamente.");return;}
+            if(detected.isEmpty()&&(barcode.isEmpty()||getIntent().getBooleanExtra("nameSearch",false))){hint.setText("Não foi possível reconhecer. Ajuste o recorte ou fotografe novamente.");return;}
             setResult(RESULT_OK,new Intent().putExtra("text",detected).putExtra("barcode",barcode));finish();
         });
     }
-    void reset(){area.removeAllViews();area.addView(preview,new FrameLayout.LayoutParams(-1,-1));if(photo!=null){photo.recycle();photo=null;}shoot.setVisibility(View.VISIBLE);light.setVisibility(View.VISIBLE);recognize.setVisibility(View.GONE);again.setVisibility(View.GONE);hint.setText("Enquadre a etiqueta. Toque para focar.");}
+    void reset(){area.removeAllViews();area.addView(preview,new FrameLayout.LayoutParams(-1,-1));if(photo!=null){photo.recycle();photo=null;}shoot.setVisibility(View.VISIBLE);light.setVisibility(View.VISIBLE);recognize.setVisibility(View.GONE);again.setVisibility(View.GONE);hint.setText(getIntent().getBooleanExtra("nameSearch",false)?"Enquadre o nome e o sabor na embalagem ou etiqueta. Toque para focar.":"Enquadre a etiqueta. Toque para focar.");}
     void cleanup(){if(temporary!=null)temporary.delete();}
     @Override protected void onDestroy(){cleanup();if(provider!=null)provider.unbindAll();super.onDestroy();}
     final class CropView extends View {

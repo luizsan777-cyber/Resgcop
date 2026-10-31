@@ -10,14 +10,14 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
-/** Streaming, transactional backups; reads versions 1–3 without loading the file in memory. */
+/** Streaming, transactional backups; reads versions 1–5 without loading the file in memory. */
 final class BackupIO {
     static final String[] TABLES={"settings","sessions","items","budgets","shopping_list","pantry","basket","stores"};
     static void write(SQLiteDatabase db,OutputStream stream) throws Exception {
         if(stream==null)throw new IOException("Não foi possível abrir o arquivo");
         db.beginTransaction();
         try(JsonWriter out=new JsonWriter(new OutputStreamWriter(stream,StandardCharsets.UTF_8))){
-            out.beginObject().name("format").value("regsco-backup").name("version").value(4);
+            out.beginObject().name("format").value("regsco-backup").name("version").value(5);
             for(String table:TABLES){
                 out.name(table).beginArray();
                 try(Cursor c=db.rawQuery("SELECT * FROM "+table,null)){
@@ -72,7 +72,7 @@ final class BackupIO {
                 }
                 in.endObject();
                 if(in.peek()!=JsonToken.END_DOCUMENT)throw new IOException("Conteúdo inesperado após o backup");
-                if(!format.equals("regsco-backup")||version<1||version>4)throw new IOException("Versão de backup incompatível");
+                if(!format.equals("regsco-backup")||version<1||version>5)throw new IOException("Versão de backup incompatível");
                 for(String table:TABLES)if(!found.contains(table)&&!(version<2&&table.equals("basket"))&&!(version<3&&table.equals("stores")))throw new IOException("Backup incompleto: "+table);
                 DatabaseRules.validate(staged);staged.setTransactionSuccessful();
             }finally{staged.endTransaction();}

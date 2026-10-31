@@ -1,3 +1,22 @@
+# RegsCo 0.6.0 — estoque organizado e busca de alternativas
+
+Atualização incremental sobre a versão 0.5, sem apagar dados locais.
+
+- Entrada **Estoque**, com acesso separado à lista compacta de produtos e ao cadastro.
+- Fotos locais de embalagens para os 15 alimentos da lista doméstica; fotos próprias continuam prioritárias. As marcas das referências visuais não identificam automaticamente o produto do usuário.
+- Campo **Em uso**, incluído no total disponível (3 sacos, 1 em uso = 3 no total). Migração adiciona a coluna com zero para registros antigos.
+- **Cadastrar minha lista de casa**: revisão dos 15 itens; importação transacional só dos ausentes. Produtos existentes não são sobrescritos nem somados de novo. Pimenta sem quantidade fica marcada para informar.
+- **Fotografar • outras opções no Mix**: OCR local, revisão do nome/tipo/sabor, busca por nome sem código de barras e sem exigir a marca fotografada. Tipos e sabores conhecidos são filtrados; termos não reconhecidos podem ser corrigidos antes da consulta.
+- Resultados online mostram nome, foto recebida do catálogo, preço, fonte, horário e valor por kg/L quando extraível. Fotos indisponíveis são sinalizadas. Não há preços embutidos ou inventados.
+- Leitura de notas, comparação histórica, farmácia e demais recursos da 0.5 preservados.
+- Backup streaming versão 5 inclui `in_use`, aceita versões anteriores e mantém restauração transacional. Aplicativos antigos não devem restaurar backups novos.
+
+Validação: 29 testes automatizados de finanças, integridade, recibos, fotos, navegação, backup, temas e busca passaram. Layouts renderizados em Android 15/Robolectric, incluindo a lista e a entrada do estoque nos três temas. Consulta real por `polpa acerola` retornou três ofertas do catálogo de Parque Alvorada, com fotos e apresentações distintas. O catálogo pode mudar; busca limitada aos resultados disponibilizados pela fonte. Câmera/OCR em embalagem real ainda requer validação no aparelho; não foi realizado teste físico no Redmi.
+
+As fotografias de embalagens e suas fontes estão documentadas em `PHOTO_CREDITS.md` e nas configurações do aplicativo. Chave de assinatura de desenvolvimento mantida fora do repositório.
+
+---
+
 # RegsCo
 
 Aplicativo Android local de compras domésticas (`com.regsco.compras`). Esta evolução preserva o banco `regsco.db` do projeto inicial e **ainda não representa a conclusão integral do prompt mestre**.

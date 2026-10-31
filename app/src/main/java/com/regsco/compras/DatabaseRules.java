@@ -8,6 +8,7 @@ final class DatabaseRules {
         db.beginTransaction();
         try {
             for(String column:new String[]{"barcode TEXT NOT NULL DEFAULT ''","brand TEXT NOT NULL DEFAULT ''","unit TEXT NOT NULL DEFAULT 'un'","store TEXT NOT NULL DEFAULT ''","notes TEXT NOT NULL DEFAULT ''","retail_cents INTEGER NOT NULL DEFAULT 0","wholesale_cents INTEGER NOT NULL DEFAULT 0","wholesale_min INTEGER NOT NULL DEFAULT 0","discount_cents INTEGER NOT NULL DEFAULT 0"}) addColumn(db,"items",column);
+            addColumn(db,"pantry","in_use INTEGER NOT NULL DEFAULT 0");
             addColumn(db,"pantry","image_data TEXT NOT NULL DEFAULT ''");
             addColumn(db,"sessions","receipt_hash TEXT NOT NULL DEFAULT ''");
             addColumn(db,"sessions","receipt_text TEXT NOT NULL DEFAULT ''");
@@ -45,7 +46,7 @@ final class DatabaseRules {
         };
         for(String q:invalid)if(exists(db,q))throw new IllegalArgumentException("Backup contém dados inválidos. Nada foi substituído.");
         if(exists(db,"SELECT 1 FROM items WHERE discount_cents<0 OR discount_cents>quantity*unit_cents OR wholesale_cents<0 OR wholesale_min<0 OR retail_cents<0"))throw new IllegalArgumentException("Condição de preço inválida no backup");
-        if(exists(db,"SELECT 1 FROM pantry WHERE minimum<0")||exists(db,"SELECT 1 FROM sessions WHERE stock_added NOT IN (0,1)"))throw new IllegalArgumentException("Estoque inválido no backup");
+        if(exists(db,"SELECT 1 FROM pantry WHERE minimum<0 OR in_use<0 OR in_use>quantity OR typeof(in_use)<>'integer'")||exists(db,"SELECT 1 FROM sessions WHERE stock_added NOT IN (0,1)"))throw new IllegalArgumentException("Estoque inválido no backup");
         // SQLite SUM raises rather than silently converting an overflowing integer aggregate.
         try(Cursor c=db.rawQuery("SELECT SUM(quantity*unit_cents) FROM items",null)){c.moveToFirst();c.getLong(0);}
     }
